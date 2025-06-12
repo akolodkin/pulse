@@ -8,9 +8,12 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "tsconfig.json"
   ],
   "scripts": {
+    "prepare": "npm run build",
     "release": "npm run build && semantic-release",
     "semantic-release": "semantic-release",
     "prepublishOnly": "npm run build",
