@@ -1,6 +1,6 @@
 # Connection
 
-Pulse stores jobs in PostgreSQL. Pass it a `pg` Pool you own; Pulse never ends it.
+Pulse stores jobs in PostgreSQL (13+, the schema uses `gen_random_uuid()`). Pass it a `pg` Pool you own; Pulse never ends it.
 
 ```ts
 import { Pool } from 'pg';
@@ -25,6 +25,8 @@ console.log(pulseJobsDdl('pulse_jobs'));
 ```
 
 `table` may be `table` or `schema.table` (letters, digits, underscores).
+
+With several processes, create the schema from one place (your migrations or a single `ensureSchema()` call), not with `autoSchema: true` on every replica.
 
 With `autoSchema: true`, attach the `error` listener before the schema is created: a DDL failure is emitted as `error` and `ready` will not fire.
 
@@ -56,3 +58,4 @@ With `autoSchema: true`, attach the `error` listener before the schema is create
 5. Dates inside `job.attrs.data` and `result` are stored as JSON and come back as ISO strings.
 6. `resumeOnRestart` runs inside `start()` and only releases locks older than the job's `lockLifetime`.
 7. `disableAutoIndex` is replaced by `autoSchema` (default `false`).
+8. Config `sort` / `pulse.sort()` take `{ field: 'asc' | 'desc' }` (was Mongo `{ field: 1 | -1 }`).

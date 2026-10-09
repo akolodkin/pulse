@@ -123,7 +123,8 @@ Pulse is a new fork of the [Agenda](https://github.com/agenda/agenda) project, c
 | [find-and-lock-next-job.ts](https://github.com/pulsecron/pulse/blob/master/src/pulse/find-and-lock-next-job.ts) | Unlocks and processes queued jobs within the Pulse repository. In the find-and-lock-next-job file, the function identifies a specific job based on its name, locks it for execution, and returns the job status. This operation ensures efficient management of tasks within the system.                                      |
 | [job-processing-queue.ts](https://github.com/pulsecron/pulse/blob/master/src/pulse/job-processing-queue.ts)     | JobProcessingQueue, as part of the larger Pulse repository, manages job processing through an internal queue. It offers capabilities like job insertion in a specific order, popping jobs without concurrency checks, and identifying the next job eligible for processing whose execution isnt blocked by concurrency.       |
 | [lock-limit.ts](https://github.com/pulsecron/pulse/blob/master/src/pulse/lock-limit.ts)                         | LockLimit sets a global upper limit on the number of jobs that can be simultaneously locked within the Pulse system, ensuring efficient task execution without resource overstretching. Its essential for maintaining concurrency control in the broader repository architecture.                                             |
-| [close.ts](https://github.com/pulsecron/pulse/blob/master/src/pulse/close.ts)                                   | Pulse/close.ts is kept for API compatibility. The pg Pool is owned by the caller, so close() ends nothing. || [save-job.ts](https://github.com/pulsecron/pulse/blob/master/src/pulse/save-job.ts)                             | <code>► INSERT-TEXT-HERE</code>                                                                                                                                                                                                                                                                                               |
+| [close.ts](https://github.com/pulsecron/pulse/blob/master/src/pulse/close.ts)                                   | Pulse/close.ts is kept for API compatibility. The pg Pool is owned by the caller, so close() ends nothing. |
+| [save-job.ts](https://github.com/pulsecron/pulse/blob/master/src/pulse/save-job.ts)                             | <code>► INSERT-TEXT-HERE</code>                                                                                                                                                                                                                                                                                               |
 
 </details>
 
@@ -180,7 +181,9 @@ Pulse is a new fork of the [Agenda](https://github.com/agenda/agenda) project, c
 
 ####  PostgreSQL setup
 
-Pulse stores jobs in PostgreSQL and takes a [`pg`](https://node-postgres.com) Pool that you own (`pg` `^8` is a peer dependency). Create the table either with `autoSchema: true` / `await pulse.ensureSchema()`, or add the DDL from `pulseJobsDdl('pulse_jobs')` to your own migrations.
+Pulse stores jobs in PostgreSQL and takes a [`pg`](https://node-postgres.com) Pool that you own (`pg` `^8` is a peer dependency). Requires PostgreSQL 13+ (the schema uses `gen_random_uuid()`). Create the table either with `autoSchema: true` / `await pulse.ensureSchema()`, or add the DDL from `pulseJobsDdl('pulse_jobs')` to your own migrations.
+
+With several processes, create the schema from one place (your migrations or a single `ensureSchema()` call), not with `autoSchema: true` on every replica.
 
 With `autoSchema: true`, attach an `error` listener before the schema is created: a DDL failure is emitted as `error` and `ready` will not fire.
 
@@ -200,6 +203,7 @@ See the [connection guide](gitbook/docs/setup-and-config/connection.md) for deta
 5. Dates inside `job.attrs.data` and `result` are stored as JSON and come back as ISO strings.
 6. `resumeOnRestart` runs inside `start()` and only releases locks older than the job's `lockLifetime`.
 7. `disableAutoIndex` is replaced by `autoSchema` (default `false`).
+8. Config `sort` / `pulse.sort()` take `{ field: 'asc' | 'desc' }` (was Mongo `{ field: 1 | -1 }`).
 
 Details are in the [connection guide](gitbook/docs/setup-and-config/connection.md#upgrading-from-1x-mongodb).
 
@@ -304,7 +308,7 @@ function time() {
 
 ##  Project Roadmap
 
-- [X] **Move Storage to PostgreSQL**: Pulse 2.0 stores jobs in PostgreSQL through the `pg` driver, giving transactional locking and indexed queries.
+- [X] **Move Storage to PostgreSQL**: Pulse 2.0 stores jobs in PostgreSQL through the `pg` driver, giving atomic row locking (`FOR UPDATE SKIP LOCKED`) and indexed queries.
 - [X] **Refactoring to Modern TypeScript Syntax**: Undertake a comprehensive refactor of the codebase to utilize modern TypeScript features and syntax. This refactoring will improve code readability, maintainability, and make it easier for new contributors to understand and contribute to the project.
 - [X] **Resolving Issues in Existing Agenda Projects**: Actively address and resolve outstanding issues within the original Agenda project. This initiative not only aids the community by improving the legacy codebase but also informs the development of Pulse by identifying and addressing past challenges.
 - [ ] **Rewrite Test Code**: Revamp our testing suite to increase coverage and ensure tests are up-to-date with modern testing practices. This rewrite aims to enhance test reliability and efficiency, facilitating smoother development and deployment cycles.
