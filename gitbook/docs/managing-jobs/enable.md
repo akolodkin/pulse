@@ -2,10 +2,10 @@
 
 
 
-## `pulse.enable(query)`
+## `pulse.enable(filter?)`
 
 {% hint style="info" %}
-The `enable` method reverses the effects of the `disable` method by updating job records in the MongoDB database to clear the `disabled` flag, allowing them to be processed again by the job scheduler. This is useful for resuming job execution after a temporary pause.
+The `enable` method reverses the effects of the `disable` method by updating job records in the database to clear the `disabled` flag, allowing them to be processed again by the job scheduler. This is useful for resuming job execution after a temporary pause.
 {% endhint %}
 
 ### Example Usage
@@ -13,10 +13,8 @@ The `enable` method reverses the effects of the `disable` method by updating job
 ```typescript
 const pulse = new Pulse();
 
-// Example of enabling all jobs that were disabled for a maintenance window
-const maintenanceQuery = { reason: 'maintenance' };
-
-pulse.enable(maintenanceQuery)
+// Example of enabling every disabled job named 'send email report'
+pulse.enable({ name: 'send email report', disabled: true })
   .then(modifiedCount => console.log(`${modifiedCount} jobs re-enabled after maintenance`))
   .catch(error => console.error('Failed to enable jobs:', error));
 ```
@@ -25,11 +23,11 @@ pulse.enable(maintenanceQuery)
 
 ### Parameters
 
-* **`query`** (`Filter<unknown>` - optional): A MongoDB filter query to select the jobs to be enabled. If no query is provided, it defaults to an empty object `{}`, potentially enabling all jobs if not used with caution.
+* **`filter`** (`JobFilter` - optional): A typed filter selecting the jobs to enable; see [`jobs`](jobs.md) for the fields. If omitted, it defaults to `{}`, which matches every job, so use it with caution. Unknown fields throw a `PulseError`.
 
 ### Returns
 
-* **`Promise<number>`**: A promise that resolves with the number of job records that were modified to an enabled state. This count provides an indication of how many jobs were affected by the operation.
+* **`Promise<number>`**: A promise that resolves with the number of jobs whose `disabled` flag changed. This count provides an indication of how many jobs were affected by the operation.
 
 \
 

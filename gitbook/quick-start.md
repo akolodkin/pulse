@@ -3,7 +3,7 @@
 ### Installation
 
 ```bash
-npm i @pulsecron/pulse
+npm i @pulsecron/pulse pg
 ```
 
 
@@ -11,20 +11,18 @@ npm i @pulsecron/pulse
 ### Example&#x20;
 
 ```typescript
+import { Pool } from 'pg';
 import Pulse from '@pulsecron/pulse';
 
-const mongoConnectionString = 'mongodb://localhost:27017/pulse';
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const pulse = new Pulse({ db: { address: mongoConnectionString } });
+const pulse = new Pulse({ pg: { pool }, autoSchema: true });
 
-// Or override the default collection name:
-// const pulse = new Pulse({db: {address: mongoConnectionString, collection: 'jobCollectionName'}});
+// Override the default table name (`pulse_jobs`, or `schema.table`):
+// const pulse = new Pulse({ pg: { pool, table: 'my_schema.jobs' } });
 
-// or pass additional connection options:
-// const pulse = new Pulse({db: {address: mongoConnectionString, collection: 'jobCollectionName', options: {ssl: true}}});
-
-// or pass in an existing mongodb-native MongoClient instance
-// const pulse = new Pulse({mongo: myMongoClient});
+// or attach the pool after construction:
+// pulse.pg(pool, 'pulse_jobs');
 
 /**
  * Example of defining a job

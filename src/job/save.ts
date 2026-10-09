@@ -2,7 +2,7 @@ import { Job } from '.';
 
 export type SaveMethod = () => Promise<Job>;
 /**
- * Saves a job into the MongoDB
+ * Saves a job into the database
  * @name Job#
  * @function
  * @returns instance of Job resolved after job is saved or errors

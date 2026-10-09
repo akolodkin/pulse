@@ -95,7 +95,7 @@ export class PgJobStore {
       return toSavedRef(rows[0]);
     }
 
-    // insertOnly hit an existing row: return that row, as Mongo's $setOnInsert upsert did.
+    // insertOnly hit an existing row: return that row, as an insert-only upsert does.
     const name = values.find(([column]) => column === 'name')?.[1];
     const uniqueKey = values.find(([column]) => column === 'unique_key')?.[1];
     const existing = await this.pool.query(

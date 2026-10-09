@@ -2,10 +2,10 @@
 
 
 
-## `pulse.cancel(query)`
+## `pulse.cancel(filter)`
 
 {% hint style="info" %}
-The `cancel` method is designed to cancel and permanently remove jobs from the MongoDB database that match a specified query. This functionality is critical for managing job lifecycles, particularly when certain jobs are no longer needed or conditions change requiring their termination.
+The `cancel` method is designed to cancel and permanently remove jobs from the database that match a specified filter. This functionality is critical for managing job lifecycles, particularly when certain jobs are no longer needed or conditions change requiring their termination.
 {% endhint %}
 
 ### Example Usage
@@ -13,23 +13,24 @@ The `cancel` method is designed to cancel and permanently remove jobs from the M
 ```typescript
 const pulse = new Pulse();
 
-// Example of canceling all jobs with a specific priority
-const query = { priority: { $lt: 0 } }; // Cancels all jobs with a negative priority
-
-pulse.cancel(query)
-  .then(deletedCount => console.log(`${deletedCount} low priority jobs cancelled`))
+// Cancel every job with a given name
+pulse.cancel({ name: 'send email report' })
+  .then(deletedCount => console.log(`${deletedCount} jobs cancelled`))
   .catch(error => console.error('Failed to cancel jobs:', error));
+
+// Cancel specific jobs by id
+pulse.cancel({ ids: [job.attrs._id] });
 ```
 
 
 
 ### Parameters
 
-* **`query`** (`Filter<Document>`): A MongoDB query that specifies which jobs to cancel and delete. This query should conform to MongoDB's query standards and can include various criteria to match specific jobs.
+* **`filter`** (`JobFilter`): A typed filter that specifies which jobs to cancel and delete; see [`jobs`](jobs.md) for the fields. `{}` matches every job and cancels all of them. Unknown fields throw a `PulseError` instead of being ignored.
 
 ### Returns
 
-* **`Promise<number | undefined>`**: Returns a promise that resolves with the number of jobs deleted from the database. If no jobs are found that match the query, the promise may resolve to `undefined` or `0`.
+* **`Promise<number>`**: Returns a promise that resolves with the number of jobs deleted from the database, `0` if none matched.
 
 \
 

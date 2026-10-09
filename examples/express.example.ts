@@ -1,13 +1,15 @@
 import express from 'express';
+import { Pool } from 'pg';
 import Pulse, { JobAttributesData } from '@pulsecron/pulse';
 
 const app = express();
 const port = 3000; // You can choose any port that is free on your system
 
 // Pulse setup
-const mongoConnectionString = 'mongodb://localhost:27017/pulse';
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const pulse = new Pulse({
-  db: { address: mongoConnectionString, collection: 'cronjob' },
+  pg: { pool, table: 'cronjob' },
+  autoSchema: true,
   defaultConcurrency: 4,
   maxConcurrency: 4,
   processEvery: '10 seconds',

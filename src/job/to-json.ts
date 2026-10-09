@@ -2,7 +2,7 @@ import { Job, JobAttributes } from '.';
 
 export type ToJsonMethod = () => Partial<JobAttributes>;
 /**
- * Given a job, turn it into an object we can store in Mongo
+ * Given a job, turn it into an object we can store in the database
  * @name Job#toJSON
  * @function
  * @returns json object from Job

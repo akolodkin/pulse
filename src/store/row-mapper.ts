@@ -55,7 +55,7 @@ const toDb = (kind: ColumnKind, value: unknown): unknown => {
 
 /**
  * Columns to write for a job. Only attributes present on the object are
- * included, mirroring Mongo's `$set`: absent attributes keep their stored value.
+ * included, like a partial update: absent attributes keep their stored value.
  */
 export const toColumnValues = (attrs: Partial<JobAttributes>): ColumnValues => {
   const source = attrs as Record<string, unknown>;

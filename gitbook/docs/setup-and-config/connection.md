@@ -1,37 +1,34 @@
 # Connection
 
-The MongoDB connection can be configured through the `PulseConfig` object, which supports either direct client reuse or new connection parameters.
+Pulse stores jobs in PostgreSQL. Pass it a `pg` Pool you own; Pulse never ends it.
 
+```ts
+import { Pool } from 'pg';
+import Pulse from '@pulsecron/pulse';
 
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pulse = new Pulse({ pg: { pool, table: 'pulse_jobs' } });
 
-#### Example Usage
-
-```typescript
-const pulseConfig = {
-  processEvery: '1 minute',
-  maxConcurrency: 10,
-  db: {
-    address: 'mongodb://localhost:27017/myApp',
-    collection: 'jobQueue'
-  }
-};
-
-
-
-const pulse = new Pulse(pulseConfig, (error, collection) => {
-  if (error) {
-    console.error('Connection error:', error);
-  } else {
-    console.log('Connected to MongoDB collection:', collection.collectionName);
-  }
-});
+pulse.on('ready', () => pulse.start());
+pulse.on('error', (error) => console.error(error));
 ```
 
+Or attach the pool after construction: `pulse.pg(pool, 'pulse_jobs')`.
 
+## Creating the table
 
+Either let Pulse create it (`new Pulse({ pg: { pool }, autoSchema: true })`, or `await pulse.ensureSchema()`), or add it to your own migrations using the canonical DDL:
 
+```ts
+import { pulseJobsDdl } from '@pulsecron/pulse';
+console.log(pulseJobsDdl('pulse_jobs'));
+```
 
-### `new Pulse(config?, cb?)`
+`table` may be `table` or `schema.table` (letters, digits, underscores).
+
+With `autoSchema: true`, attach the `error` listener before the schema is created: a DDL failure is emitted as `error` and `ready` will not fire.
+
+### `new Pulse(config?)`
 
 #### Parameters
 
@@ -43,14 +40,19 @@ const pulse = new Pulse(pulseConfig, (error, collection) => {
   * **`lockLimit`** (`number` - optional): Maximum number of jobs that can be locked at the same time. This prevents a single worker from locking too many jobs. Defaults to `'0'` if not specified.
   * **`defaultLockLimit`** (`number` - optional): Default limit for the number of jobs each worker can lock simultaneously. Defaults to `'0'` if not specified.
   * **`defaultLockLifetime`** (`number` - optional): Duration in milliseconds for how long a job can be locked before it is automatically unlocked. Useful for handling job crashes or stalls. Defaults to 600000 ms (10 minutes). Defaults to `'10 minutes'` if not specified.
-  * **`sort`** (`any` - optional): Determines the order in which jobs are selected and locked from the database. For example, `{ nextRunAt: 1, priority: -1 }` sorts by `nextRunAt` ascending and `priority` descending.
-  * **`mongo`** (`MongoDb` - optional): An existing MongoDB client that can be reused instead of creating a new connection.
-  * **`db`** (`object` - optional): Configuration for the MongoDB connection if not using an existing `MongoDb` client. Includes:
-    * **`address`** (`string`): The MongoDB connection URI.
-    * **`collection`** (`string` - optional): Specifies the MongoDB collection to use. Defaults to `pulseJobs`.
-    * **`options`** (`MongoClientOptions` - optional): MongoDB client options.
-  * **`disableAutoIndex`** (`boolean` - optional): If set to `true`, automatic indexing of job fields by the `Pulse` system is disabled. Useful for performance tuning in production environments. Defaults to `false` if not specified.
+  * **`sort`** (`JobSort` - optional): Determines the order in which jobs are selected and locked from the database. For example, `{ nextRunAt: 'asc', priority: 'desc' }` sorts by `nextRunAt` ascending and `priority` descending.
+  * **`pg`** (`object`): The PostgreSQL connection. Includes:
+    * **`pool`** (`pg.Pool`): A `pg` Pool that you own. Pulse never ends it.
+    * **`table`** (`string` - optional): The table to use, as `table` or `schema.table` (letters, digits, underscores). Defaults to `pulse_jobs`.
+  * **`autoSchema`** (`boolean` - optional): If `true`, Pulse creates the table and its indexes when the store is attached. Defaults to `false`.
   * **`resumeOnRestart`**(`boolean` - optional) - This config is used to ensure that jobs left unfinished due to an unexpected system shutdown or restart are properly resumed once the system is back online. Defaults to `true` if not specified.
 
+## Upgrading from 1.x (MongoDB)
 
-
+1. Connect with `config.pg` / `pulse.pg()`; `config.db`, `config.mongo`, `database()` and `mongo()` are gone. `close()` no longer closes anything.
+2. `job.attrs._id` is a uuid string, not an `ObjectId`.
+3. `jobs()`, `countJobs()`, `cancel()`, `disable()` and `enable()` take a `JobFilter`, not a Mongo query. `jobs()` takes `{ sort, limit, skip }` instead of positional arguments. Unknown filter fields throw.
+4. `job.unique(key)` takes a plain key object; equal keys (in any key order) upsert the same job.
+5. Dates inside `job.attrs.data` and `result` are stored as JSON and come back as ISO strings.
+6. `resumeOnRestart` runs inside `start()` and only releases locks older than the job's `lockLifetime`.
+7. `disableAutoIndex` is replaced by `autoSchema` (default `false`).

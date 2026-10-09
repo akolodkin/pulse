@@ -48,10 +48,10 @@ export const run: RunMethod = async function (this: Job) {
       this.attrs.lockedAt = null;
 
       await this.save().catch((error: Error) => {
-        debug('[%s:%s] failed to be saved to MongoDB', this.attrs.name, this.attrs._id);
+        debug('[%s:%s] failed to be saved to the database', this.attrs.name, this.attrs._id);
         reject(error);
       });
-      debug('[%s:%s] was saved successfully to MongoDB', this.attrs.name, this.attrs._id);
+      debug('[%s:%s] was saved successfully to the database', this.attrs.name, this.attrs._id);
 
       if (error) {
         pulse.emit('fail', error, this);
