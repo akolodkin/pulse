@@ -1,18 +1,18 @@
 import createDebugger from 'debug';
 import { Pulse } from '.';
+import { JobSort } from '../store';
 
 const debug = createDebugger('pulse:sort');
 
-export type SortMethod = (query: any) => Pulse;
+export type SortMethod = (sort: JobSort) => Pulse;
 /**
- * Set the sort query for finding next job
- * Default is { nextRunAt: 1, priority: -1 }
+ * Set the sort used when picking the next job to lock
  * @name Pulse#sort
  * @function
- * @param query sort query object for MongoDB
+ * @param sort e.g. { nextRunAt: 'asc', priority: 'desc' }
  */
-export const sort: SortMethod = function (this: Pulse, query) {
-  debug('Pulse.sort([Object])');
-  this._sort = query;
+export const sort: SortMethod = function (this: Pulse, sort) {
+  debug('Pulse.sort(%O)', sort);
+  this._sort = sort;
   return this;
 };

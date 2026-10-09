@@ -1,4 +1,3 @@
-import * as mongodb from 'mongodb';
 import { Pulse } from '../pulse';
 import { JobPriority } from '../pulse/define';
 import { parsePriority } from '../utils';
@@ -30,7 +29,7 @@ export interface JobAttributes<T extends JobAttributesData = JobAttributesData> 
   /**
    * The record identity.
    */
-  _id: mongodb.ObjectId;
+  _id: string;
 
   pulse: Pulse;
 
@@ -74,9 +73,9 @@ export interface JobAttributes<T extends JobAttributesData = JobAttributesData> 
    */
   data: T;
 
-  uniqueQuery?: any;
+  uniqueKey?: Record<string, unknown>;
   uniqueOpts?: {
-    insertOnly: boolean;
+    insertOnly?: boolean;
   };
 
   /**
@@ -185,7 +184,7 @@ class Job<T extends JobAttributesData = JobAttributesData> {
    */
   attrs: JobAttributes<T>;
 
-  constructor(options: Modify<JobAttributes<T>, { _id?: mongodb.ObjectId }>) {
+  constructor(options: Modify<JobAttributes<T>, { _id?: string }>) {
     const { pulse, type, nextRunAt, ...args } = options ?? {};
 
     // Save Pulse instance

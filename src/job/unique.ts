@@ -1,19 +1,16 @@
-import { Document, Filter } from 'mongodb';
 import { Job } from '.';
 
-export type UniqueMethod<TSchema extends Document = Document> = (
-  filter: Filter<TSchema>,
-  options?: { insertOnly: boolean }
-) => Job;
+export type UniqueMethod = (key: Record<string, unknown>, options?: { insertOnly?: boolean }) => Job;
 /**
- * Data to ensure is unique for job to be created
+ * Upsert on `key` instead of always inserting: a later save with an equal key
+ * (compared as key-sorted JSON) updates that job, or keeps it with `insertOnly`.
  * @name Job#unique
  * @function
- * @param filter mongo data query for unique
- * @param options unique options
+ * @param key identity of the job, e.g. { patientId }
+ * @param options { insertOnly: true } keeps the existing job unchanged
  */
-export const unique: UniqueMethod = function (this: Job, filter, options?) {
-  this.attrs.uniqueQuery = filter;
+export const unique: UniqueMethod = function (this: Job, key, options?) {
+  this.attrs.uniqueKey = key;
   this.attrs.uniqueOpts = options;
   return this;
 };

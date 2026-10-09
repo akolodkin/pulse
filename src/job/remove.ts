@@ -2,10 +2,10 @@ import { Job } from '.';
 
 export type RemoveMethod = () => Promise<number | undefined>;
 /**
- * Remove the job from MongoDB
+ * Remove the job from the database
  * @name Job#remove
  * @function
  */
 export const remove: RemoveMethod = async function (this: Job) {
-  return this.pulse.cancel({ _id: this.attrs._id });
+  return this.pulse.cancel({ ids: [this.attrs._id] });
 };

@@ -1,80 +1,91 @@
 /* eslint-disable no-console,no-unused-expressions,@typescript-eslint/no-unused-expressions */
 
-import { Db } from 'mongodb';
-
 import { Pulse } from '../../src';
 import { Job } from '../../src/job';
-import { hasMongoProtocol } from '../../src/pulse/has-mongo-protocol';
-import { mockMongoDb } from '../helpers/mock.helper';
+import { PgJobStore } from '../../src/store';
+import { createTestDb, TestDb } from '../helpers/pg.helper';
 
 describe('Test Pulse', () => {
   const jobTimeout = 500;
   const jobProcessor = () => {};
 
+  let db: TestDb;
+  let store: PgJobStore;
   let globalPulseInstance: Pulse;
-  let mongoDb: Db;
-  let mongoDbConfig: string;
-  let mongoDbDisconnect: () => Promise<void>;
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const clearJobs = async (): Promise<void> => {
-    if (mongoDb) {
-      await mongoDb.collection('pulseJobs').deleteMany({});
-    }
-  };
+  // Reads the stored row directly. Going through jobs() would build a Job,
+  // whose constructor replaces a missing nextRunAt with "now".
+  const storedJob = async (name: string) => (await store.find({ name }))[0];
+
+  beforeAll(async () => {
+    db = await createTestDb();
+    store = new PgJobStore(db.pool, db.table);
+    await store.ensureSchema();
+  });
+
+  afterAll(async () => {
+    await db.cleanup();
+  });
 
   beforeEach(async () => {
-    const { mongo, uri, disconnect } = await mockMongoDb();
-    mongoDb = mongo.db();
-    mongoDbConfig = uri;
-    mongoDbDisconnect = disconnect;
-    globalPulseInstance = new Pulse({ mongo: mongoDb });
-    delay(50);
-    await clearJobs();
+    await db.pool.query(`TRUNCATE ${db.table}`);
+    globalPulseInstance = new Pulse({ pg: { pool: db.pool, table: db.table } });
+    await globalPulseInstance._ready;
     ['someJob', 'send email', 'some job'].forEach((job) => {
       globalPulseInstance.define(job, jobProcessor);
     });
   });
 
   afterEach(async () => {
-    await clearJobs();
     await globalPulseInstance.stop();
   });
 
-  afterAll((done) => {
-    delay(50);
-    mongoDbDisconnect();
-    done();
-  });
-
   describe('Test config', () => {
-    describe('Test mongo connection tester', () => {
-      test('passing a valid server connection string', () => {
-        expect(hasMongoProtocol(mongoDbConfig)).toEqual(true);
+    describe('Test pg connection', () => {
+      test('attaches a store when passed as an option', () => {
+        const pulse = new Pulse({ pg: { pool: db.pool, table: db.table } });
+        expect(pulse._store).toBeInstanceOf(PgJobStore);
       });
 
-      test('passing a valid multiple server connection string', () => {
-        expect(hasMongoProtocol(`mongodb+srv://localhost/pulse-test`)).toEqual(true);
-      });
-
-      test('passing an invalid connection string', () => {
-        expect(hasMongoProtocol(`localhost/pulse-test`)).toEqual(false);
-      });
-    });
-    describe('Test mongo', () => {
-      test('sets the _db directly when passed as an option', () => {
-        const pulseDb = new Pulse({ mongo: mongoDb });
-        expect(pulseDb._mdb).not.toBeUndefined();
-      });
-
-      test('sets the _db directly', () => {
+      test('attaches a store with pulse.pg() and returns itself', () => {
         const pulse = new Pulse();
-        pulse.mongo(mongoDb);
-        expect(pulse._mdb).not.toBeUndefined();
+        expect(pulse.pg(db.pool, db.table)).toBe(pulse);
+        expect(pulse._store).toBeInstanceOf(PgJobStore);
       });
 
-      test('returns itself', async () => {
-        const pulse = new Pulse();
-        expect(await pulse.mongo(mongoDb)).toEqual(pulse);
+      test('emits ready after the constructor returns, so listeners attached right after it fire', async () => {
+        const pulse = new Pulse({ pg: { pool: db.pool, table: db.table } });
+        await expect(new Promise((resolve) => pulse.once('ready', () => resolve('ready')))).resolves.toBe('ready');
+      });
+
+      test('creates the table when autoSchema is true', async () => {
+        const table = `${db.schema}.auto_jobs`;
+        const pulse = new Pulse({ pg: { pool: db.pool, table }, autoSchema: true });
+        await pulse._ready;
+        const { rows } = await db.pool.query('SELECT to_regclass($1) AS t', [table]);
+        expect(rows[0].t).not.toBeNull();
+      });
+
+      test('does not create the table by default', async () => {
+        const table = `${db.schema}.manual_jobs`;
+        const pulse = new Pulse({ pg: { pool: db.pool, table } });
+        await pulse._ready;
+        const { rows } = await db.pool.query('SELECT to_regclass($1) AS t', [table]);
+        expect(rows[0].t).toBeNull();
+      });
+
+      test('emits error when autoSchema fails', async () => {
+        const pulse = new Pulse({ pg: { pool: db.pool, table: 'no_such_schema.jobs' }, autoSchema: true });
+        await expect(new Promise((_, reject) => pulse.once('error', reject))).rejects.toThrow(/no_such_schema/);
+      });
+
+      test('rejects an invalid table name', () => {
+        expect(() => new Pulse({ pg: { pool: db.pool, table: 'jobs; DROP TABLE x' } })).toThrow(/Invalid table name/);
+      });
+
+      test('close() leaves the caller-owned pool open', async () => {
+        expect(await globalPulseInstance.close()).toBe(globalPulseInstance);
+        await expect(db.pool.query('SELECT 1')).resolves.toBeDefined();
       });
     });
 
@@ -192,20 +203,22 @@ describe('Test Pulse', () => {
 
     describe('Test sort', () => {
       test('sets the default sort', () => {
-        expect(globalPulseInstance._sort).toEqual({ nextRunAt: 1, priority: -1 });
+        expect(globalPulseInstance._sort).toEqual({ nextRunAt: 'asc', priority: 'desc' });
       });
 
       test('sets the custom sort', () => {
-        globalPulseInstance.sort({ nextRunAt: -1 });
-        expect(globalPulseInstance._sort).toEqual({ nextRunAt: -1 });
+        globalPulseInstance.sort({ nextRunAt: 'desc' });
+        expect(globalPulseInstance._sort).toEqual({ nextRunAt: 'desc' });
       });
 
       test('returns itself', () => {
-        expect(globalPulseInstance.sort({ nextRunAt: 1, priority: 1 })).toEqual(globalPulseInstance);
+        expect(globalPulseInstance.sort({ nextRunAt: 'asc', priority: 'asc' })).toEqual(globalPulseInstance);
       });
     });
 
     describe('Test resumeOnRestart', () => {
+      const MINUTE = 60_000;
+
       test('sets the default resumeOnRestart', () => {
         expect(globalPulseInstance._resumeOnRestart).toBeTruthy();
       });
@@ -219,39 +232,94 @@ describe('Test Pulse', () => {
         expect(globalPulseInstance.resumeOnRestart(false)).toEqual(globalPulseInstance);
       });
 
-      // test('should not reschedule successfully finished non-recurring jobs', async () => {
-      //   const job = globalPulseInstance.create('sendEmail', { to: 'user@example.com' });
-      //   job.attrs.lastFinishedAt = new Date();
-      //   job.attrs.nextRunAt = null;
-      //   await job.save();
-
-      //   await globalPulseInstance.resumeOnRestart();
-
-      //   const updatedJob = (await globalPulseInstance.jobs({ name: 'sendEmail' }))[0];
-      //   expect(updatedJob.attrs.nextRunAt).toBeNull();
-      // });
-
-      test('should resume non-recurring jobs on restart', async () => {
+      test('reschedules a never-run job that is past due', async () => {
         const job = globalPulseInstance.create('sendEmail', { to: 'user@example.com' });
         job.attrs.nextRunAt = new Date(Date.now() - 2000);
         await job.save();
 
-        await globalPulseInstance.resumeOnRestart();
+        const before = Date.now();
+        await globalPulseInstance._resumeUnfinishedJobs();
 
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'sendEmail' }))[0];
-        expect(updatedJob.attrs.nextRunAt?.getTime()).toBeGreaterThan(Date.now() - 100);
+        expect((await storedJob('sendEmail')).nextRunAt!.getTime()).toBeGreaterThanOrEqual(before);
       });
 
-      test('should resume recurring jobs on restart - interval', async () => {
+      test('should not modify jobs with existing nextRunAt', async () => {
+        const futureDate = new Date(Date.now() + 60 * 60 * 1000);
         const job = globalPulseInstance.create('sendEmail', { to: 'user@example.com' });
-        job.attrs.repeatInterval = '5 minutes';
-        job.attrs.nextRunAt = null;
+        job.attrs.nextRunAt = futureDate;
         await job.save();
 
-        await globalPulseInstance.resumeOnRestart();
+        await globalPulseInstance._resumeUnfinishedJobs();
 
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'sendEmail' }))[0];
-        expect(updatedJob.attrs.nextRunAt).not.toBeNull();
+        expect((await storedJob('sendEmail')).nextRunAt).toEqual(futureDate);
+      });
+
+      test('releases an expired lock and reschedules the job now', async () => {
+        const job = globalPulseInstance.create('processData', { data: 'sample' });
+        job.attrs.repeatInterval = '5 minutes';
+        job.attrs.nextRunAt = new Date(Date.now() + MINUTE);
+        job.attrs.lockedAt = new Date(Date.now() - globalPulseInstance._defaultLockLifetime - MINUTE);
+        await job.save();
+        await store.update(job.attrs._id, [['last_modified_by', 'server_crash']]);
+
+        const before = Date.now();
+        await globalPulseInstance._resumeUnfinishedJobs();
+
+        const stored = await storedJob('processData');
+        expect(stored.lockedAt).toBeUndefined();
+        expect(stored.lastModifiedBy).toBeUndefined();
+        expect(stored.nextRunAt!.getTime()).toBeGreaterThanOrEqual(before);
+      });
+
+      test('keeps a live lock held by another instance', async () => {
+        const lockedAt = new Date(Date.now() - 1000);
+        const nextRunAt = new Date(Date.now() + MINUTE);
+        const job = globalPulseInstance.create('processData', { data: 'sample' });
+        job.attrs.repeatInterval = '10 minutes';
+        job.attrs.lockedAt = lockedAt;
+        job.attrs.nextRunAt = nextRunAt;
+        await job.save();
+
+        await globalPulseInstance._resumeUnfinishedJobs();
+
+        const stored = await storedJob('processData');
+        expect(stored.lockedAt).toEqual(lockedAt);
+        expect(stored.nextRunAt).toEqual(nextRunAt);
+      });
+
+      test("uses the job definition's lockLifetime", async () => {
+        globalPulseInstance.define('shortLock', jobProcessor, { lockLifetime: 1000 });
+        const job = globalPulseInstance.create('shortLock', {});
+        job.attrs.nextRunAt = new Date(Date.now() + MINUTE);
+        job.attrs.lockedAt = new Date(Date.now() - 5000);
+        await job.save();
+
+        await globalPulseInstance._resumeUnfinishedJobs();
+
+        expect((await storedJob('shortLock')).lockedAt).toBeUndefined();
+      });
+
+      test('start() resumes unfinished jobs when resumeOnRestart is on', async () => {
+        const job = globalPulseInstance.create('sendEmail', {});
+        job.attrs.nextRunAt = new Date(Date.now() + MINUTE);
+        job.attrs.lockedAt = new Date(Date.now() - 2 * globalPulseInstance._defaultLockLifetime);
+        await job.save();
+
+        await globalPulseInstance.start();
+
+        expect((await storedJob('sendEmail')).lockedAt).toBeUndefined();
+      });
+
+      test('start() leaves locks alone when resumeOnRestart is off', async () => {
+        const job = globalPulseInstance.create('sendEmail', {});
+        job.attrs.nextRunAt = new Date(Date.now() + MINUTE);
+        job.attrs.lockedAt = new Date(Date.now() - 2 * globalPulseInstance._defaultLockLifetime);
+        await job.save();
+
+        globalPulseInstance.resumeOnRestart(false);
+        await globalPulseInstance.start();
+
+        expect((await storedJob('sendEmail')).lockedAt).toBeDefined();
       });
 
       test('should compute nextRunAt after running a recurring job', async () => {
@@ -270,106 +338,15 @@ describe('Test Pulse', () => {
 
         await new Promise((resolve) => setTimeout(resolve, 4000));
 
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'recurringJob' }))[0];
+        const stored = await storedJob('recurringJob');
 
         expect(executionCount).toBeGreaterThan(0);
-        expect(updatedJob.attrs.lastRunAt).not.toBeNull();
-        expect(updatedJob.attrs.nextRunAt).not.toBeNull();
-        expect(updatedJob.attrs.nextRunAt?.getTime()).toBeGreaterThan(Date.now() - 100);
+        expect(stored.lastRunAt).toBeDefined();
+        expect(stored.lockedAt).toBeUndefined();
+        expect(stored.nextRunAt!.getTime()).toBeGreaterThan(Date.now());
       });
-
-      test('should resume recurring jobs on restart - cron', async () => {
-        const job = globalPulseInstance.create('sendEmail', { to: 'user@example.com' });
-        job.attrs.repeatInterval = '*/5 * * * *';
-        job.attrs.nextRunAt = null;
-        await job.save();
-
-        await globalPulseInstance.resumeOnRestart();
-
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'sendEmail' }))[0];
-        expect(updatedJob.attrs.nextRunAt).not.toBeNull();
-      });
-
-      test('should resume recurring jobs on restart - repeatAt', async () => {
-        const job = globalPulseInstance.create('sendEmail', { to: 'user@example.com' });
-        job.attrs.repeatAt = '1:00 am';
-        job.attrs.nextRunAt = null;
-        await job.save();
-
-        await globalPulseInstance.resumeOnRestart();
-
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'sendEmail' }))[0];
-        expect(updatedJob.attrs.nextRunAt).not.toBeNull();
-      });
-
-      test('should not modify jobs with existing nextRunAt', async () => {
-        const futureDate = new Date(Date.now() + 60 * 60 * 1000);
-        const job = globalPulseInstance.create('sendEmail', { to: 'user@example.com' });
-        job.attrs.nextRunAt = futureDate;
-        await job.save();
-
-        await globalPulseInstance.resumeOnRestart();
-
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'sendEmail' }))[0];
-        expect(updatedJob.attrs.nextRunAt?.getTime()).toEqual(futureDate.getTime());
-      });
-
-      test('should handle jobs that started but have not finished (non-recurring)', async () => {
-        const job = globalPulseInstance.create('processData', { data: 'sample' });
-        job.attrs.nextRunAt = null;
-        job.attrs.lockedAt = new Date();
-        await job.save();
-
-        await globalPulseInstance.resumeOnRestart();
-
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'processData' }))[0];
-
-        const now = Date.now();
-        expect(updatedJob.attrs.nextRunAt).not.toBeNull();
-        expect(updatedJob.attrs.nextRunAt?.getTime()).toBeGreaterThan(now - 100);
-      });
-
-      test('should handle recurring jobs that started but have not finished', async () => {
-        const job = globalPulseInstance.create('processData', { data: 'sample' });
-        job.attrs.repeatInterval = '10 minutes';
-        job.attrs.lockedAt = new Date();
-        job.attrs.nextRunAt = new Date(Date.now() + 10000);
-        await job.save();
-
-        await globalPulseInstance.resumeOnRestart();
-
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'processData' }))[0];
-        expect(updatedJob.attrs.lockedAt).not.toBeNull();
-        expect(updatedJob.attrs.nextRunAt).not.toBeNull();
-      });
-
-      test('should handle interrupted recurring jobs after server recovery', async () => {
-        const job = globalPulseInstance.create('processData', { data: 'sample' });
-        job.attrs.repeatInterval = '5 minutes';
-        job.attrs.lastModifiedBy = 'server_crash';
-        job.attrs.nextRunAt = null;
-        await job.save();
-
-        await globalPulseInstance.resumeOnRestart();
-
-        const updatedJob = (await globalPulseInstance.jobs({ name: 'processData' }))[0];
-        expect(updatedJob.attrs.nextRunAt).not.toBeNull();
-        expect(updatedJob.attrs.lastModifiedBy).not.toEqual('server_crash');
-      });
-
-      // test('should not modify non-recurring jobs with lastFinishedAt in the past', async () => {
-      //   const job = globalPulseInstance.create('sendEmail', { to: 'user@example.com' });
-      //   job.attrs.lastFinishedAt = new Date(Date.now() - 10000);
-      //   await job.save();
-
-      //   await globalPulseInstance.resumeOnRestart();
-
-      //   const updatedJob = (await globalPulseInstance.jobs({ name: 'sendEmail' }))[0];
-      //   expect(updatedJob.attrs.nextRunAt).toBeNull();
-      // });
     });
   });
-
   describe('Test job methods', () => {
     describe('Test create method', () => {
       let job: any;
@@ -502,41 +479,23 @@ describe('Test Pulse', () => {
 
     describe('Test countJobs', () => {
       test('returns zero when there are no jobs', async () => {
-        const count = await globalPulseInstance.countJobs();
-        expect(count).toBe(0);
+        expect(await globalPulseInstance.countJobs()).toBe(0);
       });
 
       test('counts jobs correctly', async () => {
-        const job1 = globalPulseInstance.create('testJob1', {});
-        const job2 = globalPulseInstance.create('testJob2', {});
-        await job1.save();
-        await job2.save();
+        await globalPulseInstance.create('testJob1', {}).save();
+        await globalPulseInstance.create('testJob2', {}).save();
 
-        const count = await globalPulseInstance.countJobs();
-        expect(count).toBe(2);
+        expect(await globalPulseInstance.countJobs()).toBe(2);
       });
 
-      test('counts jobs with query', async () => {
-        const job1 = globalPulseInstance.create('testJob1', { type: 'email' });
-        const job2 = globalPulseInstance.create('testJob2', { type: 'sms' });
-        await job1.save();
-        await job2.save();
+      test('counts jobs matching a filter', async () => {
+        await globalPulseInstance.create('testJob1', { type: 'email' }).save();
+        await globalPulseInstance.create('testJob2', { type: 'sms' }).save();
 
-        const count = await globalPulseInstance.countJobs({ 'data.type': 'email' });
-        expect(count).toBe(1);
-      });
-
-      test('counts jobs with options', async () => {
-        const job1 = globalPulseInstance.create('testJob1', { type: 'email' });
-        const job2 = globalPulseInstance.create('testJob2', { type: 'sms' });
-        await job1.save();
-        await job2.save();
-
-        const count = await globalPulseInstance.countJobs({}, { limit: 1 });
-        expect(count).toBe(1);
+        expect(await globalPulseInstance.countJobs({ data: { type: 'email' } })).toBe(1);
       });
     });
-
     describe('Test schedule method', () => {
       test('creates and schedules a job', async () => {
         await globalPulseInstance.schedule('2024-06-03T10:00:00Z', 'sendEmail', { to: 'some guy' });
@@ -556,6 +515,169 @@ describe('Test Pulse', () => {
         const job = jobs[0];
         expect(job.attrs.nextRunAt).toEqual(new Date('2024-06-03T10:00:00Z'));
       });
+    });
+  });
+
+  describe('Test query and persistence API', () => {
+    test('jobs() applies sort, limit and skip', async () => {
+      const base = Date.now() + 60_000;
+      for (const [name, offset] of [
+        ['a', 1],
+        ['b', 2],
+        ['c', 3],
+      ] as const) {
+        await globalPulseInstance
+          .create(name, {})
+          .schedule(new Date(base + offset * 1000))
+          .save();
+      }
+
+      const page = await globalPulseInstance.jobs({}, { sort: { nextRunAt: 'desc' }, limit: 2, skip: 1 });
+
+      expect(page.map((job) => job.attrs.name)).toEqual(['b', 'a']);
+    });
+
+    test('jobs() returns Job instances with string ids', async () => {
+      await globalPulseInstance.create('sendEmail', {}).save();
+      const [job] = await globalPulseInstance.jobs({ name: 'sendEmail' });
+      expect(job).toBeInstanceOf(Job);
+      expect(job.attrs._id).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    test('jobs() rejects a leftover Mongo-style filter', async () => {
+      await expect(
+        globalPulseInstance.jobs({ failedAt: { $exists: true } } as unknown as Parameters<Pulse['jobs']>[0])
+      ).rejects.toThrow(/Unknown date condition/);
+    });
+
+    test('cancel() deletes matching jobs, emits cancel and returns the count', async () => {
+      const job = await globalPulseInstance.create('sendEmail', {}).save();
+      await globalPulseInstance.create('sendEmail', {}).save();
+      const cancelled = jest.fn();
+      globalPulseInstance.on('cancel', cancelled);
+
+      expect(await globalPulseInstance.cancel({ ids: [job.attrs._id] })).toBe(1);
+      expect(cancelled).toHaveBeenCalledWith(1);
+      expect(await globalPulseInstance.countJobs({ name: 'sendEmail' })).toBe(1);
+    });
+
+    test('job.remove() deletes the job', async () => {
+      const job = await globalPulseInstance.create('sendEmail', {}).save();
+      expect(await job.remove()).toBe(1);
+      expect(await globalPulseInstance.countJobs()).toBe(0);
+    });
+
+    test('saving a job that was cancelled meanwhile is a no-op', async () => {
+      const job = await globalPulseInstance.create('sendEmail', {}).save();
+      await globalPulseInstance.cancel({ ids: [job.attrs._id] });
+      job.attrs.failReason = 'late write';
+      await expect(job.save()).resolves.toBe(job);
+      expect(await globalPulseInstance.countJobs()).toBe(0);
+    });
+
+    test('disable() and enable() return the number of jobs changed', async () => {
+      await globalPulseInstance.create('a', {}).save();
+      await globalPulseInstance.create('b', {}).save();
+
+      expect(await globalPulseInstance.disable({ name: 'a' })).toBe(1);
+      expect(await globalPulseInstance.disable({ name: 'a' })).toBe(0);
+      expect((await storedJob('a')).disabled).toBe(true);
+      expect(await globalPulseInstance.enable()).toBe(1);
+      expect((await storedJob('a')).disabled).toBe(false);
+    });
+
+    test('purge() removes only jobs with no definition', async () => {
+      await globalPulseInstance.create('someJob', {}).save();
+      await globalPulseInstance.create('undefinedJob', {}).save();
+
+      expect(await globalPulseInstance.purge()).toBe(1);
+      expect((await globalPulseInstance.jobs()).map((job) => job.attrs.name)).toEqual(['someJob']);
+    });
+
+    test('unique() upserts on the key; insertOnly keeps the first data', async () => {
+      const first = await globalPulseInstance.create('u', { v: 1 }).unique({ patientId: 'p1' }).save();
+      const second = await globalPulseInstance.create('u', { v: 2 }).unique({ patientId: 'p1' }).save();
+      const third = await globalPulseInstance
+        .create('u', { v: 3 })
+        .unique({ patientId: 'p1' }, { insertOnly: true })
+        .save();
+
+      expect(second.attrs._id).toBe(first.attrs._id);
+      expect(third.attrs._id).toBe(first.attrs._id);
+      expect(await globalPulseInstance.countJobs({ name: 'u' })).toBe(1);
+      expect((await storedJob('u')).data).toEqual({ v: 2 });
+    });
+
+    test('unique() keys compare regardless of key order', async () => {
+      await globalPulseInstance.create('u', {}).unique({ a: 1, b: 2 }).save();
+      await globalPulseInstance.create('u', {}).unique({ b: 2, a: 1 }).save();
+      expect(await globalPulseInstance.countJobs({ name: 'u' })).toBe(1);
+    });
+
+    test('every() called again does not clear a lock or counters it does not carry', async () => {
+      const job = (await globalPulseInstance.every('5 minutes', 'tick')) as Job;
+      const lockedAt = new Date();
+      await store.update(job.attrs._id, [
+        ['locked_at', lockedAt],
+        ['run_count', 4],
+      ]);
+
+      await globalPulseInstance.every('5 minutes', 'tick');
+
+      const stored = await storedJob('tick');
+      expect(stored.lockedAt).toEqual(lockedAt);
+      expect(stored.runCount).toBe(4);
+    });
+
+    test('setting an attribute to undefined and saving clears it (admin retry)', async () => {
+      const job = await globalPulseInstance.create('sendEmail', {}).save();
+      await store.update(job.attrs._id, [
+        ['locked_at', new Date()],
+        ['failed_at', new Date()],
+        ['fail_reason', 'boom'],
+      ]);
+      const [loaded] = await globalPulseInstance.jobs({ ids: [job.attrs._id] });
+
+      loaded.attrs.lockedAt = undefined;
+      loaded.attrs.failedAt = undefined;
+      loaded.attrs.failReason = undefined;
+      await loaded.save();
+
+      const stored = await storedJob('sendEmail');
+      expect(stored.lockedAt).toBeUndefined();
+      expect(stored.failedAt).toBeUndefined();
+      expect(stored.failReason).toBeUndefined();
+    });
+
+    test('fetchStatus() reads the stored job, and reports a removed one', async () => {
+      const job = await globalPulseInstance.create('sendEmail', {}).save();
+      expect((await job.fetchStatus()).status).toBe(true);
+      await job.remove();
+      expect(await job.fetchStatus()).toEqual({
+        status: false,
+        reason: `job with id ${job.attrs._id} not found in database`,
+      });
+    });
+
+    test('Dates inside data come back as ISO strings', async () => {
+      const when = new Date('2026-01-01T00:00:00.000Z');
+      await globalPulseInstance.create('sendEmail', { when }).save();
+      expect((await storedJob('sendEmail')).data).toEqual({ when: '2026-01-01T00:00:00.000Z' });
+    });
+
+    test('now() runs a defined job and leaves it finished and unlocked', async () => {
+      const ran = jest.fn();
+      globalPulseInstance.define('quick', async () => ran());
+      globalPulseInstance.processEvery('1 second');
+      await globalPulseInstance.start();
+
+      await globalPulseInstance.now('quick');
+      await delay(2500);
+
+      expect(ran).toHaveBeenCalledTimes(1);
+      const stored = await storedJob('quick');
+      expect(stored.lastFinishedAt).toBeDefined();
+      expect(stored.lockedAt).toBeUndefined();
     });
   });
 });

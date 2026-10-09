@@ -1,19 +1,14 @@
-import { CountDocumentsOptions, Filter } from 'mongodb';
 import { Pulse } from '.';
+import { JobFilter } from '../store';
 
-export const countJobsRepo = async function (this: Pulse, query = {}, options = {}) {
-  return await this._collection.countDocuments(query, options);
-};
-export type CountJobsMethod = (query?: Filter<any>, options?: CountDocumentsOptions | undefined) => Promise<number>;
+export type CountJobsMethod = (filter?: JobFilter) => Promise<number>;
 
 /**
- * Counts all jobs matching 'query'
+ * Counts all jobs matching `filter`
  * @name Pulse#countJobs
  * @function
- * @param [query] object for MongoDB
- * @param [options] object for MongoDB
- * @returns resolves when fails or passes
+ * @param [filter] typed job filter
  */
-export const countJobs = async function (this: Pulse, query = {}, options = {}) {
-  return await this._collection.countDocuments(query, options);
+export const countJobs: CountJobsMethod = async function (this: Pulse, filter = {}) {
+  return this._store.count(filter);
 };

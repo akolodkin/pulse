@@ -1,13 +1,11 @@
 import { EventEmitter } from 'events';
 import humanInterval from 'human-interval';
-import { AnyError, Collection, MongoClient, MongoClientOptions, Db as MongoDb } from 'mongodb';
+import type { Pool } from 'pg';
 import { Job } from '../job';
 import { CancelMethod, cancel } from './cancel';
 import { CloseMethod, close } from './close';
 import { CountJobsMethod, countJobs } from './count-jobs';
 import { CreateMethod, create } from './create';
-import { DatabaseMethod, database } from './database';
-import { DbInitMethod, dbInit } from './db-init';
 import { DefaultConcurrencyMethod, defaultConcurrency } from './default-concurrency';
 import { DefaultLockLifetimeMethod, defaultLockLifetime } from './default-lock-lifetime';
 import { DefaultLockLimitMethod, defaultLockLimit } from './default-lock-limit';
@@ -15,23 +13,26 @@ import { DefineMethod, define } from './define';
 import { DisableMethod, disable } from './disable';
 import { DrainMethod, drain } from './drain';
 import { EnableMethod, enable } from './enable';
+import { EnsureSchemaMethod, ensureSchema } from './ensure-schema';
 import { EveryMethod, every } from './every';
 import { findAndLockNextJob } from './find-and-lock-next-job';
 import { JobProcessingQueue } from './job-processing-queue';
-import { JobsMethod, getJobsRepo, jobs } from './jobs';
+import { JobsMethod, jobs } from './jobs';
 import { LockLimitMethod, lockLimit } from './lock-limit';
 import { MaxConcurrencyMethod, maxConcurrency } from './max-concurrency';
-import { MongoMethod, mongo } from './mongo';
 import { NameMethod, name } from './name';
 import { NowMethod, now } from './now';
+import { PgMethod, pg } from './pg';
 import { ProcessEveryMethod, processEvery } from './process-every';
 import { PurgeMethod, purge } from './purge';
 import { ResumeOnRestartMethod, resumeOnRestart } from './resume-on-restart';
+import { resumeUnfinishedJobs } from './resume-unfinished-jobs';
 import { SaveJobMethod, saveJob } from './save-job';
 import { ScheduleMethod, schedule } from './schedule';
 import { SortMethod, sort } from './sort';
 import { StartMethod, start } from './start';
 import { StopMethod, stop } from './stop';
+import { JobSort, PgJobStore } from '../store';
 
 export type PulseOnEventType = 'ready' | 'start' | 'success' | 'fail' | 'complete' | 'cancel' | 'error';
 export interface PulseConfig {
@@ -42,21 +43,18 @@ export interface PulseConfig {
   lockLimit?: number;
   defaultLockLimit?: number;
   defaultLockLifetime?: number;
-  sort?: any;
-  mongo?: MongoDb;
-  db?: {
-    address: string;
-    collection?: string;
-    options?: MongoClientOptions;
+  sort?: JobSort;
+  pg?: {
+    pool: Pool;
+    table?: string;
   };
-  disableAutoIndex?: boolean;
+  autoSchema?: boolean;
   resumeOnRestart?: boolean;
 }
 
 /**
  * @class Pulse
  * @param {Object} config - Pulse Config
- * @param {Function} cb - Callback after Pulse has started and connected to mongo
  * @property {Object} _name - Name of the current Pulse queue
  * @property {Number} _processEvery
  * @property {Number} _defaultConcurrency
@@ -81,8 +79,6 @@ class Pulse extends EventEmitter {
   _defaultLockLimit: any;
   _definitions: any;
   _findAndLockNextJob = findAndLockNextJob;
-  _indices: any;
-  _disableAutoIndex: boolean;
   _resumeOnRestart: boolean;
   _isLockingOnTheFly: boolean;
   _isJobQueueFilling: Map<string, boolean>;
@@ -92,14 +88,13 @@ class Pulse extends EventEmitter {
   _runningJobs: Job[];
   _lockLimit: any;
   _maxConcurrency: any;
-  _mongoUseUnifiedTopology?: boolean;
   _name: any;
   _processEvery: number;
   _ready: Promise<unknown>;
-  _sort: any;
-  _db!: MongoClient;
-  _mdb!: MongoDb;
-  _collection!: Collection;
+  _sort: JobSort;
+  _resumeUnfinishedJobs = resumeUnfinishedJobs;
+  _autoSchema: boolean;
+  _store!: PgJobStore;
   _nextScanAt: any;
   _processInterval: any;
   _readyAt: Date;
@@ -107,12 +102,8 @@ class Pulse extends EventEmitter {
   /**
    * Constructs a new Pulse object.
    * @param config Optional configuration to initialize the Pulse.
-   * @param cb Optional callback called with the MongoDB collection.
    */
-  constructor(
-    config: PulseConfig = {},
-    cb?: (error: AnyError | undefined, collection: Collection<any> | null) => void
-  ) {
+  constructor(config: PulseConfig = {}) {
     super();
 
     this._name = config.name;
@@ -126,16 +117,8 @@ class Pulse extends EventEmitter {
     this._lockedJobs = [];
     this._jobQueue = new JobProcessingQueue();
     this._defaultLockLifetime = config.defaultLockLifetime || 10 * 60 * 1000; // 10 minute default lockLifetime
-    this._sort = config.sort || { nextRunAt: 1, priority: -1 };
-    this._indices = {
-      name: 1,
-      ...this._sort,
-      priority: -1,
-      lockedAt: 1,
-      nextRunAt: 1,
-      disabled: 1,
-    };
-    this._disableAutoIndex = config.disableAutoIndex === true;
+    this._sort = config.sort || { nextRunAt: 'asc', priority: 'desc' };
+    this._autoSchema = config.autoSchema === true;
     this._resumeOnRestart = config.resumeOnRestart !== false;
 
     this._isLockingOnTheFly = false;
@@ -146,7 +129,7 @@ class Pulse extends EventEmitter {
     });
     this._readyAt = new Date();
 
-    this.init(config, cb);
+    this.init(config);
   }
 
   /**
@@ -177,10 +160,6 @@ class Pulse extends EventEmitter {
 
   get create(): CreateMethod {
     return this.bindMethod('create', create);
-  }
-
-  get dbInit(): DbInitMethod {
-    return this.bindMethod('dbInit', dbInit);
   }
 
   get defaultConcurrency(): DefaultConcurrencyMethod {
@@ -255,26 +234,16 @@ class Pulse extends EventEmitter {
     return this.bindMethod('drain', drain);
   }
 
-  get mongo(): MongoMethod {
-    return this.bindMethod('mongo', mongo);
+  get pg(): PgMethod {
+    return this.bindMethod('pg', pg);
   }
 
-  get database(): DatabaseMethod {
-    return this.bindMethod('database', database);
+  get ensureSchema(): EnsureSchemaMethod {
+    return this.bindMethod('ensureSchema', ensureSchema);
   }
 
   get resumeOnRestart(): ResumeOnRestartMethod {
     return this.bindMethod('resumeOnRestart', resumeOnRestart);
-  }
-
-  /**
-   *
-   ***************************************
-   * Repository method
-   * *************************************
-   */
-  get getJobsRepo() {
-    return this.bindMethod('getJobsRepo', getJobsRepo);
   }
 
   /**
@@ -294,17 +263,9 @@ class Pulse extends EventEmitter {
    * *************************************
    */
 
-  private init(config: PulseConfig, cb?: (error: AnyError | undefined, collection: Collection<any> | null) => void) {
-    if (config.mongo) {
-      this.mongo(config.mongo, config.db ? config.db.collection : undefined, cb); // @ts-expect-error // the documentation shows it should be correct: http://mongodb.github.io/node-mongodb-native/3.6/api/Db.html
-      if (config.mongo.s && config.mongo.topology && config.mongo.topology.s) {
-        this._mongoUseUnifiedTopology = Boolean(
-          // @ts-expect-error
-          config.mongo.topology.s.options.useUnifiedTopology
-        );
-      }
-    } else if (config.db) {
-      this.database(config.db.address, config.db.collection, config.db.options, cb);
+  private init(config: PulseConfig) {
+    if (config.pg) {
+      this.pg(config.pg.pool, config.pg.table);
     }
   }
 

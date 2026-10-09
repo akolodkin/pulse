@@ -1,25 +1,18 @@
-import { Filter, Sort } from 'mongodb';
 import { Pulse } from '.';
 import { Job } from '../job';
+import { FindOptions, JobFilter } from '../store';
 import { createJob } from '../utils';
 
-export const getJobsRepo = async function (this: Pulse, query = {}, sort = {}, limit = 0, skip = 0) {
-  return await this._collection.find(query).sort(sort).limit(limit).skip(skip).toArray();
-};
-
-export type JobsMethod = (query?: Filter<any>, sort?: Sort | string, limit?: number, skip?: number) => Promise<Job[]>;
+export type JobsMethod = (filter?: JobFilter, options?: FindOptions) => Promise<Job[]>;
 
 /**
- * Finds all jobs matching 'query'
+ * Finds all jobs matching `filter`
  * @name Pulse#jobs
  * @function
- * @param [query] object for MongoDB
- * @param [sort] object for MongoDB
- * @param [limit] number of documents to return from MongoDB
- * @param [number] of documents to skip in MongoDB
- * @returns resolves when fails or passes
+ * @param [filter] typed job filter
+ * @param [options] sort, limit and skip
  */
-export const jobs: JobsMethod = async function (this: Pulse, query = {}, sort = {}, limit = 0, skip = 0) {
-  const result = await getJobsRepo.call(this, query, sort, limit, skip);
-  return result.map((job: any) => createJob(this, job));
+export const jobs: JobsMethod = async function (this: Pulse, filter = {}, options = {}) {
+  const records = await this._store.find(filter, options);
+  return records.map((record) => createJob(this, record));
 };

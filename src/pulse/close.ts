@@ -3,34 +3,14 @@ import { Pulse } from '.';
 
 const debug = createDebugger('pulse:close');
 
-export type CloseMethod = (option?: { force: boolean }) => Promise<Pulse>;
-
-/** Close the db and it's underlying connections
- * Only works if pulse was instantiated without preconfigured mongoDb instance.
- * If the mongoDb instance was supplied during instantiation or via pulse.mongo, this function will do nothing and return pulse anyway.
+export type CloseMethod = () => Promise<Pulse>;
+/**
+ * Kept for API compatibility. The pg Pool belongs to the caller, so there is
+ * nothing for Pulse to close; end the pool yourself.
  * @name Pulse#close
  * @function
- * @param [option] {{ force: boolean }} Force close, emitting no events
- *
- *
- * @caller client code
- *
- * @link https://mongodb.github.io/node-mongodb-native/2.0/api/Db.html#close
  */
-export const close: CloseMethod = async function (this: Pulse, option?) {
-  debug('close db connection for this pulse instance');
-  const closeOptions = {
-    force: false,
-    ...option,
-  };
-  try {
-    if (this._db) {
-      await this._db.close(closeOptions.force);
-    }
-
-    return this;
-  } catch (error) {
-    debug('error trying to close db connection to');
-    throw error;
-  }
+export const close: CloseMethod = async function (this: Pulse) {
+  debug('close called; the pg pool is owned by the caller and is left open');
+  return this;
 };

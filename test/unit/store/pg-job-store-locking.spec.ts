@@ -107,7 +107,7 @@ describe('PgJobStore locking', () => {
           if (!record) {
             return locked;
           }
-          locked.push(String(record._id));
+          locked.push(record._id);
         }
       };
 
