@@ -46,9 +46,9 @@ describe('toColumnValues', () => {
   });
 
   test('does not persist attributes without a column', () => {
-    expect(toColumnValues(attrs({ _id: 'x', uniqueKey: { a: 1 }, uniqueOpts: { insertOnly: true }, extra: 1 }))).toEqual(
-      []
-    );
+    expect(
+      toColumnValues(attrs({ _id: 'x', uniqueKey: { a: 1 }, uniqueOpts: { insertOnly: true }, extra: 1 }))
+    ).toEqual([]);
   });
 });
 

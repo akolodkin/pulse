@@ -11,12 +11,9 @@ describe('quoteTableName', () => {
     expect(quoteTableName('jobs.pulse_jobs')).toBe('"jobs"."pulse_jobs"');
   });
 
-  test.each(['', 'a.b.c', 'pulse jobs', 'jobs; DROP TABLE x', '"quoted"', '1jobs', 'jobs.'])(
-    'rejects %p',
-    (name) => {
-      expect(() => quoteTableName(name)).toThrow(/Invalid table name/);
-    }
-  );
+  test.each(['', 'a.b.c', 'pulse jobs', 'jobs; DROP TABLE x', '"quoted"', '1jobs', 'jobs.'])('rejects %p', (name) => {
+    expect(() => quoteTableName(name)).toThrow(/Invalid table name/);
+  });
 });
 
 describe('pulseJobsDdl', () => {
@@ -90,7 +87,9 @@ describe('pulseJobsDdl', () => {
   });
 
   test('allows one single-type row per name but many normal rows', async () => {
-    await db.pool.query(`INSERT INTO ${db.table} (name, type) VALUES ('n', 'normal'), ('n', 'normal'), ('s', 'single')`);
+    await db.pool.query(
+      `INSERT INTO ${db.table} (name, type) VALUES ('n', 'normal'), ('n', 'normal'), ('s', 'single')`
+    );
     await expect(db.pool.query(`INSERT INTO ${db.table} (name, type) VALUES ('s', 'single')`)).rejects.toThrow(
       /pulse_jobs_single_idx/
     );
