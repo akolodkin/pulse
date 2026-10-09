@@ -15,6 +15,13 @@ export interface FindOptions {
   skip?: number;
 }
 
+export interface LockNextOptions {
+  now: Date;
+  nextScanAt: Date;
+  lockDeadline: Date;
+  sort: JobSort;
+}
+
 const RETURNING_REF = 'RETURNING id, next_run_at';
 
 const toSavedRef = (row: { id: string; next_run_at: Date | null }): SavedRef => ({
@@ -145,6 +152,61 @@ export class PgJobStore {
       return;
     }
     await this.pool.query(`UPDATE ${this.table} SET locked_at = NULL WHERE id = ANY($1::uuid[])`, [ids]);
+  }
+
+  /**
+   * Locks the next due job of `name`. SKIP LOCKED lets concurrent pollers
+   * pass over a row another poller is locking instead of waiting or taking it too.
+   */
+  async lockNext(
+    name: string,
+    { now, nextScanAt, lockDeadline, sort }: LockNextOptions
+  ): Promise<JobRecord | undefined> {
+    const { rows } = await this.pool.query(
+      `UPDATE ${this.table} SET locked_at = $1
+       WHERE id = (
+         SELECT id FROM ${this.table}
+         WHERE name = $2 AND NOT disabled
+           AND ((locked_at IS NULL AND next_run_at <= $3) OR locked_at <= $4)
+         ${compileOrderBy(sort)}
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED)
+       RETURNING *`,
+      [now, name, nextScanAt, lockDeadline]
+    );
+    return rows[0] ? fromRow(rows[0]) : undefined;
+  }
+
+  async lockById(id: string, nextRunAt: Date | null | undefined, now: Date): Promise<JobRecord | undefined> {
+    const { rows } = await this.pool.query(
+      `UPDATE ${this.table} SET locked_at = $1
+       WHERE id = $2 AND locked_at IS NULL AND next_run_at IS NOT DISTINCT FROM $3 AND NOT disabled
+       RETURNING *`,
+      [now, id, nextRunAt ?? null]
+    );
+    return rows[0] ? fromRow(rows[0]) : undefined;
+  }
+
+  /**
+   * Makes interrupted work runnable again. Only locks older than the job's lock
+   * lifetime are released, so jobs running on other processes are left alone.
+   */
+  async resumeUnfinished(now: Date, lockDeadlines: Record<string, Date>, defaultLockDeadline: Date): Promise<number> {
+    const names = Object.keys(lockDeadlines);
+    const result = await this.pool.query(
+      `WITH deadline(name, at) AS (SELECT * FROM unnest($2::text[], $3::timestamptz[]))
+       UPDATE ${this.table} AS job
+       SET locked_at = NULL, last_modified_by = NULL, last_run_at = NULL, next_run_at = $1
+       WHERE (job.locked_at IS NOT NULL
+              AND job.locked_at <= COALESCE((SELECT at FROM deadline WHERE deadline.name = job.name), $4)
+              AND job.next_run_at IS NOT NULL
+              AND (job.run_count IS NOT DISTINCT FROM job.finished_count OR job.last_finished_at IS NULL))
+          OR (job.locked_at IS NULL
+              AND job.last_finished_at IS NULL
+              AND job.next_run_at <= $1)`,
+      [now, names, names.map((name) => lockDeadlines[name]), defaultLockDeadline]
+    );
+    return result.rowCount ?? 0;
   }
 
   private insertParts(values: ColumnValues) {
