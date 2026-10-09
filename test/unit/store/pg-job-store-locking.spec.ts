@@ -192,6 +192,19 @@ describe('PgJobStore locking', () => {
       expect((await stored(_id)).lockedAt).toBeUndefined();
     });
 
+    test('honours a per-name lock lifetime longer than the default', async () => {
+      const lockedAt = new Date(now.getTime() - 11 * MINUTE);
+      const { _id } = await insertJob([
+        ['name', 'long'],
+        ['next_run_at', new Date(now.getTime() + MINUTE)],
+        ['locked_at', lockedAt],
+      ]);
+      const deadlines = { long: new Date(now.getTime() - 60 * MINUTE) };
+
+      expect(await store.resumeUnfinished(now, deadlines, defaultDeadline)).toBe(0);
+      expect((await stored(_id)).lockedAt).toEqual(lockedAt);
+    });
+
     test('does not release an expired lock on a job that finished its last run', async () => {
       const { _id } = await insertJob([
         ['name', 'w'],
