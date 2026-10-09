@@ -32,7 +32,7 @@ import { ScheduleMethod, schedule } from './schedule';
 import { SortMethod, sort } from './sort';
 import { StartMethod, start } from './start';
 import { StopMethod, stop } from './stop';
-import { JobSort, PgJobStore } from '../store';
+import { compileOrderBy, JobSort, PgJobStore } from '../store';
 
 export type PulseOnEventType = 'ready' | 'start' | 'success' | 'fail' | 'complete' | 'cancel' | 'error';
 export interface PulseConfig {
@@ -117,6 +117,9 @@ class Pulse extends EventEmitter {
     this._lockedJobs = [];
     this._jobQueue = new JobProcessingQueue();
     this._defaultLockLifetime = config.defaultLockLifetime || 10 * 60 * 1000; // 10 minute default lockLifetime
+    if (config.sort) {
+      compileOrderBy(config.sort);
+    }
     this._sort = config.sort || { nextRunAt: 'asc', priority: 'desc' };
     this._autoSchema = config.autoSchema === true;
     this._resumeOnRestart = config.resumeOnRestart !== false;

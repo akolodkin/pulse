@@ -2,7 +2,7 @@
 
 import { Pulse } from '../../src';
 import { Job } from '../../src/job';
-import { PgJobStore } from '../../src/store';
+import { JobSort, PgJobStore } from '../../src/store';
 import { createTestDb, TestDb } from '../helpers/pg.helper';
 
 describe('Test Pulse', () => {
@@ -209,6 +209,14 @@ describe('Test Pulse', () => {
       test('sets the custom sort', () => {
         globalPulseInstance.sort({ nextRunAt: 'desc' });
         expect(globalPulseInstance._sort).toEqual({ nextRunAt: 'desc' });
+      });
+
+      test('rejects a Mongo-style sort in the config', () => {
+        expect(() => new Pulse({ sort: { nextRunAt: 1 } as unknown as JobSort })).toThrow(/Invalid sort direction/);
+      });
+
+      test('rejects an unknown sort field in sort()', () => {
+        expect(() => globalPulseInstance.sort({ bogus: 'asc' } as unknown as JobSort)).toThrow(/Cannot sort jobs by/);
       });
 
       test('returns itself', () => {
@@ -561,6 +569,12 @@ describe('Test Pulse', () => {
       expect(await globalPulseInstance.countJobs({ name: 'sendEmail' })).toBe(1);
     });
 
+    test('cancel() refuses an undefined filter value and keeps the job', async () => {
+      await globalPulseInstance.create('sendEmail', {}).save();
+      await expect(globalPulseInstance.cancel({ ids: undefined })).rejects.toThrow(/is undefined/);
+      expect(await globalPulseInstance.countJobs({ name: 'sendEmail' })).toBe(1);
+    });
+
     test('job.remove() deletes the job', async () => {
       const job = await globalPulseInstance.create('sendEmail', {}).save();
       expect(await job.remove()).toBe(1);
@@ -668,7 +682,7 @@ describe('Test Pulse', () => {
     test('now() runs a defined job and leaves it finished and unlocked', async () => {
       const ran = jest.fn();
       globalPulseInstance.define('quick', async () => ran());
-      globalPulseInstance.processEvery('1 second');
+      globalPulseInstance.processEvery('1 minute');
       await globalPulseInstance.start();
 
       await globalPulseInstance.now('quick');
