@@ -185,6 +185,42 @@ describe('PgJobStore writes and reads', () => {
     expect(await store.count()).toBe(2);
   });
 
+  describe('destructive calls refuse undefined filter values', () => {
+    beforeEach(async () => {
+      for (const name of ['a', 'b']) {
+        await store.insert([
+          ['name', name],
+          ['type', 'normal'],
+        ]);
+      }
+    });
+
+    test('delete({ name: undefined }) rejects and deletes nothing', async () => {
+      await expect(store.delete({ name: undefined })).rejects.toThrow(
+        'Refusing to delete jobs: filter field "name" is undefined'
+      );
+      expect(await store.count()).toBe(2);
+    });
+
+    test('delete rejects an undefined value inside data', async () => {
+      await expect(store.delete({ name: 'a', data: { orderId: undefined } })).rejects.toThrow(
+        'filter field "data.orderId" is undefined'
+      );
+      expect(await store.count()).toBe(2);
+    });
+
+    test('setDisabled rejects an undefined date operator', async () => {
+      await expect(store.setDisabled({ nextRunAt: { lte: undefined } }, true)).rejects.toThrow(
+        'Refusing to update jobs: filter field "nextRunAt.lte" is undefined'
+      );
+      expect(await store.count({ disabled: true })).toBe(0);
+    });
+
+    test('find({ name: undefined }) still reads every row', async () => {
+      expect(await store.find({ name: undefined })).toHaveLength(2);
+    });
+  });
+
   test('unlock clears locked_at for the given ids only', async () => {
     const now = new Date();
     const a = await store.insert([

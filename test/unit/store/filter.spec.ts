@@ -123,6 +123,10 @@ describe('compileWhere', () => {
     [{ status: 'done' }, /Unknown job status "done"/],
     [{ status: 'constructor' }, /Unknown job status "constructor"/],
     [{ nextRunAt: { toString: new Date() } }, /Unknown date condition "toString" on "nextRunAt"/],
+    [{ nextRunAt: { $lte: undefined } }, /Unknown date condition "\$lte" on "nextRunAt"/],
+    [{ nextRunAt: new Date() }, /Invalid date condition for "nextRunAt"/],
+    [{ lockedAt: [] }, /Invalid date condition for "lockedAt"/],
+    [{ lockedAt: null }, /Invalid date condition for "lockedAt"/],
   ])('rejects leftover Mongo-style filter %p', (filter, message) => {
     expect(() => compileWhere(filter as unknown as JobFilter, [])).toThrow(message);
   });

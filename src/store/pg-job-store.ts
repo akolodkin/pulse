@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { pulseJobsDdl } from './ddl';
-import { compileOrderBy, compileWhere, JobFilter, JobSort } from './filter';
+import { assertNoUndefined, compileOrderBy, compileWhere, JobFilter, JobSort } from './filter';
 import { ColumnValues, fromRow, JobRecord } from './row-mapper';
 import { quoteTableName } from './table';
 
@@ -130,12 +130,14 @@ export class PgJobStore {
   }
 
   async delete(filter: JobFilter): Promise<number> {
+    assertNoUndefined(filter, 'delete');
     const params: unknown[] = [];
     const result = await this.pool.query(`DELETE FROM ${this.table} WHERE ${compileWhere(filter, params)}`, params);
     return result.rowCount ?? 0;
   }
 
   async setDisabled(filter: JobFilter, disabled: boolean): Promise<number> {
+    assertNoUndefined(filter, 'update');
     const params: unknown[] = [];
     const where = compileWhere(filter, params);
     params.push(disabled);

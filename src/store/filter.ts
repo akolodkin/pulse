@@ -64,7 +64,43 @@ const FILTER_FIELDS = new Set<string>([
 // names such as "constructor" coming from a request.
 const has = (object: object, key: string): boolean => Object.prototype.hasOwnProperty.call(object, key);
 
+const isPlainObject = (value: unknown): boolean => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
 export const escapeLike = (text: string): string => text.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+/**
+ * Destructive calls must not treat an undefined value as "no condition": that
+ * widens the statement to every row. Reads keep ignoring undefined fields.
+ */
+export const assertNoUndefined = (filter: JobFilter, action: string): void => {
+  const refuse = (field: string): never => {
+    throw new PulseError(`Refusing to ${action} jobs: filter field "${field}" is undefined`);
+  };
+  for (const [key, value] of Object.entries(filter)) {
+    if (value === undefined) {
+      refuse(key);
+    }
+    if (key === 'data') {
+      for (const [dataKey, dataValue] of Object.entries(value as object)) {
+        if (dataValue === undefined) {
+          refuse(`data.${dataKey}`);
+        }
+      }
+    } else if (has(DATE_COLUMNS, key) && isPlainObject(value)) {
+      for (const [op, opValue] of Object.entries(value as object)) {
+        if (opValue === undefined) {
+          refuse(`${key}.${op}`);
+        }
+      }
+    }
+  }
+};
 
 /**
  * Compiles a filter into a SQL boolean expression, pushing its values onto
@@ -119,16 +155,22 @@ export const compileWhere = (filter: JobFilter, params: unknown[]): string => {
     if (cond === undefined) {
       continue;
     }
+    if (!isPlainObject(cond)) {
+      throw new PulseError(`Invalid date condition for "${field}": expected an object like { lte: Date }`);
+    }
+    for (const key of Object.keys(cond)) {
+      if (key !== 'isNull' && !has(DATE_OPERATORS, key)) {
+        throw new PulseError(`Unknown date condition "${key}" on "${field}"`);
+      }
+    }
     for (const [key, value] of Object.entries(cond)) {
       if (value === undefined) {
         continue;
       }
       if (key === 'isNull') {
         clauses.push(`${column} IS ${value ? '' : 'NOT '}NULL`);
-      } else if (has(DATE_OPERATORS, key)) {
-        clauses.push(`${column} ${DATE_OPERATORS[key as keyof typeof DATE_OPERATORS]} ${param(value)}`);
       } else {
-        throw new PulseError(`Unknown date condition "${key}" on "${field}"`);
+        clauses.push(`${column} ${DATE_OPERATORS[key as keyof typeof DATE_OPERATORS]} ${param(value)}`);
       }
     }
   }
