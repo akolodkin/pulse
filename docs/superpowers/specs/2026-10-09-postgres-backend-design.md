@@ -125,8 +125,17 @@ new Pulse({ pg: { pool, table: 'pulse_jobs' }, ... })
 
 - `attrs._id` keeps its name and becomes a uuid `string` (was `ObjectId`).
 - Every attribute is a column, so "unset" means `NULL`. An attribute that is
-  `undefined` on save is written as `NULL`. LISA's admin retry and run-now
-  (`lockedAt = undefined; save()`) depend on this.
+  present on the job but `undefined` is written as `NULL`. LISA's admin retry
+  and run-now (`lockedAt = undefined; save()`) depend on this.
+- Only attributes present on the job are written, as with Mongo's `$set`.
+  Columns for absent attributes keep their stored value on update (and take
+  their default on insert). Without this, `every()` re-run by each booting
+  replica would overwrite `locked_at` and the run counters of a job that is
+  running.
+- `NOT NULL` columns with a default (`priority`, `disabled`,
+  `should_save_result`) treat an `undefined` attribute as absent.
+- Attributes with no column (`uniqueKey`, `uniqueOpts`, any ad-hoc key) are
+  not persisted.
 - Integer counters and dates map `NULL` → `undefined` on read, so
   `attrs.runCount` is `undefined` for a job that never ran, as today.
 - Dates inside `data` and `result` are stored as jsonb and come back as ISO
@@ -261,6 +270,13 @@ interface JobFilter {
 
 An empty filter matches every row, as an empty Mongo query does today.
 
+Because of that, an unknown filter key (for example a leftover Mongo-style
+`{ _id: … }` or `{ nextRunAt: { $lte: … } }`) throws a `PulseError` instead of
+being ignored. Silently dropping it would turn `cancel()` into "delete
+everything". Entries in `ids` that are not valid uuids match nothing rather
+than raising a Postgres cast error, so a malformed id from a URL reads as "not
+found".
+
 ### Signatures
 
 ```ts
@@ -306,7 +322,8 @@ interface PulseConfig {
 ```
 
 `pulse.pg(pool, table?)` replaces `pulse.mongo(db, collection?)` for
-connecting after construction. `ready` is emitted once the store is attached
+connecting after construction. `close()` no longer closes anything, because
+the pool belongs to the caller; it resolves with the Pulse instance. `ready` is emitted once the store is attached
 (and, with `autoSchema`, the DDL has run). `error` is emitted if the DDL
 fails.
 
