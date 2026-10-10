@@ -694,6 +694,14 @@ describe('Test Pulse', () => {
       expect(stored.lockedAt).toBeUndefined();
     });
 
+    test('job.run() rejects when the save before running fails, instead of never settling', async () => {
+      globalPulseInstance.define('flaky-db', async () => {});
+      const job = await globalPulseInstance.create('flaky-db', {}).save();
+      jest.spyOn(globalPulseInstance._store, 'update').mockRejectedValueOnce(new Error('db down'));
+
+      await expect(job.run()).rejects.toThrow('db down');
+    }, 3000);
+
     test('stop() keeps the lock of a running job and releases jobs that were locked but not started', async () => {
       let release: () => void = () => {};
       const released = new Promise<void>((resolve) => {
