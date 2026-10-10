@@ -27,4 +27,14 @@ describe('package', () => {
     expect(pkg.peerDependencies.pg).toBe('^8');
     expect(pkg.version).toBe('2.0.0');
   });
+
+  test('inlines TypeScript helpers instead of needing tslib at runtime', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pkg = require('../../package.json');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ts = require('typescript');
+    const { config } = ts.readConfigFile(require.resolve('../../tsconfig.json'), ts.sys.readFile);
+    expect(config.compilerOptions.importHelpers).toBe(false);
+    expect(pkg.dependencies.tslib).toBeUndefined();
+  });
 });

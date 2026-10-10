@@ -62,8 +62,7 @@
     "date.js": "~0.3.3",
     "debug": "~4.3.4",
     "human-interval": "~2.0.1",
-    "moment-timezone": "^0.5.45",
-    "tslib": "^2.8.1"
+    "moment-timezone": "^0.5.45"
   },
   "peerDependencies": {
     "pg": "^8"
