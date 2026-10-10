@@ -1,5 +1,6 @@
-import { PgJobStore } from '../../../src/store';
-import { createTestDb, TestDb } from '../../helpers/pg.helper';
+import { Pool } from 'pg';
+import { JobFilter, PgJobStore } from '../../../src/store';
+import { createTestDb, TestDb, testDatabaseUrl } from '../../helpers/pg.helper';
 
 describe('PgJobStore writes and reads', () => {
   let db: TestDb;
@@ -216,9 +217,29 @@ describe('PgJobStore writes and reads', () => {
       expect(await store.count({ disabled: true })).toBe(0);
     });
 
+    test('delete({ data: null }) rejects with a PulseError and deletes nothing', async () => {
+      await expect(store.delete({ data: null } as unknown as JobFilter)).rejects.toThrow(
+        'Invalid job filter field "data": expected an object'
+      );
+      expect(await store.count()).toBe(2);
+    });
+
     test('find({ name: undefined }) still reads every row', async () => {
       expect(await store.find({ name: undefined })).toHaveLength(2);
     });
+  });
+
+  test('ensureSchema called by several processes at once on a fresh table succeeds for all of them', async () => {
+    const pools = Array.from({ length: 5 }, () => new Pool({ connectionString: testDatabaseUrl(), max: 1 }));
+    try {
+      for (let round = 0; round < 3; round++) {
+        const table = `${db.schema}.race_${round}`;
+        const results = await Promise.allSettled(pools.map((pool) => new PgJobStore(pool, table).ensureSchema()));
+        expect(results.filter((result) => result.status === 'rejected')).toEqual([]);
+      }
+    } finally {
+      await Promise.all(pools.map((pool) => pool.end()));
+    }
   });
 
   test('unlock clears locked_at for the given ids only', async () => {

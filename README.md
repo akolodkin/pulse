@@ -183,7 +183,7 @@ Pulse is a new fork of the [Agenda](https://github.com/agenda/agenda) project, c
 
 Pulse stores jobs in PostgreSQL and takes a [`pg`](https://node-postgres.com) Pool that you own (`pg` `^8` is a peer dependency). Requires PostgreSQL 13+ (the schema uses `gen_random_uuid()`). Create the table either with `autoSchema: true` / `await pulse.ensureSchema()`, or add the DDL from `pulseJobsDdl('pulse_jobs')` to your own migrations.
 
-With several processes, create the schema from one place (your migrations or a single `ensureSchema()` call), not with `autoSchema: true` on every replica.
+`ensureSchema()` / `autoSchema` take a Postgres advisory lock, so several processes can create the schema at the same time; the first one creates it and the rest wait and find it there.
 
 With `autoSchema: true`, attach an `error` listener before the schema is created: a DDL failure is emitted as `error` and `ready` will not fire.
 
@@ -204,6 +204,7 @@ See the [connection guide](gitbook/docs/setup-and-config/connection.md) for deta
 6. `resumeOnRestart` runs inside `start()` and only releases locks older than the job's `lockLifetime`.
 7. `disableAutoIndex` is replaced by `autoSchema` (default `false`).
 8. Config `sort` / `pulse.sort()` take `{ field: 'asc' | 'desc' }` (was Mongo `{ field: 1 | -1 }`).
+9. `stop()` releases only jobs it locked but had not started. A job that is running keeps its lock: if the process finishes it, it is unlocked as usual; if the process exits first, another worker re-runs it once its `lockLifetime` expires. (1.x unlocked running jobs too, which left a running one-off job with no `nextRunAt`, so it never ran again.)
 
 Details are in the [connection guide](gitbook/docs/setup-and-config/connection.md#upgrading-from-1x-mongodb).
 

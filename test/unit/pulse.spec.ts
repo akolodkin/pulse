@@ -693,5 +693,41 @@ describe('Test Pulse', () => {
       expect(stored.lastFinishedAt).toBeDefined();
       expect(stored.lockedAt).toBeUndefined();
     });
+
+    test('stop() keeps the lock of a running job and releases jobs that were locked but not started', async () => {
+      let release: () => void = () => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started: string[] = [];
+      globalPulseInstance.define(
+        'single-lane',
+        async (job: Job) => {
+          started.push(job.attrs._id);
+          await released;
+        },
+        { concurrency: 1 }
+      );
+      const running = await globalPulseInstance.create('single-lane', { n: 1 }).save();
+      const waiting = await globalPulseInstance.create('single-lane', { n: 2 }).save();
+      globalPulseInstance.processEvery('1 minute');
+      await globalPulseInstance.start();
+      await delay(1000);
+      expect(started).toHaveLength(1);
+      const [runningId] = started;
+      const waitingId = runningId === running.attrs._id ? waiting.attrs._id : running.attrs._id;
+      expect((await store.find({ ids: [waitingId] }))[0].lockedAt).toBeDefined();
+
+      await globalPulseInstance.stop();
+
+      expect((await store.find({ ids: [runningId] }))[0].lockedAt).toBeDefined();
+      expect((await store.find({ ids: [waitingId] }))[0].lockedAt).toBeUndefined();
+
+      release();
+      await delay(500);
+      const finished = (await store.find({ ids: [runningId] }))[0];
+      expect(finished.lockedAt).toBeUndefined();
+      expect(finished.lastFinishedAt).toBeDefined();
+    });
   });
 });

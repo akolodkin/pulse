@@ -40,8 +40,17 @@ export class PgJobStore {
     this.table = quoteTableName(tableName);
   }
 
+  /**
+   * Several processes may create the table at once. The DDL runs in the same
+   * query as a transaction-scoped advisory lock (one query = one implicit
+   * transaction), so later callers wait for the first to commit instead of
+   * racing on CREATE ... IF NOT EXISTS. The table name is safe to inline:
+   * quoteTableName() already restricted it to letters, digits, '_' and '.'.
+   */
   async ensureSchema(): Promise<void> {
-    await this.pool.query(pulseJobsDdl(this.tableName));
+    await this.pool.query(
+      `SELECT pg_advisory_xact_lock(hashtext('pulse:${this.tableName}'));\n${pulseJobsDdl(this.tableName)}`
+    );
   }
 
   async insert(values: ColumnValues): Promise<SavedRef> {

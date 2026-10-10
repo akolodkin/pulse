@@ -127,6 +127,8 @@ describe('compileWhere', () => {
     [{ nextRunAt: new Date() }, /Invalid date condition for "nextRunAt"/],
     [{ lockedAt: [] }, /Invalid date condition for "lockedAt"/],
     [{ lockedAt: null }, /Invalid date condition for "lockedAt"/],
+    [{ data: null }, /Invalid job filter field "data": expected an object/],
+    [{ data: 'x' }, /Invalid job filter field "data": expected an object/],
   ])('rejects leftover Mongo-style filter %p', (filter, message) => {
     expect(() => compileWhere(filter as unknown as JobFilter, [])).toThrow(message);
   });

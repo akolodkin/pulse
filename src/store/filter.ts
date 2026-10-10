@@ -86,7 +86,7 @@ export const assertNoUndefined = (filter: JobFilter, action: string): void => {
     if (value === undefined) {
       refuse(key);
     }
-    if (key === 'data') {
+    if (key === 'data' && isPlainObject(value)) {
       for (const [dataKey, dataValue] of Object.entries(value as object)) {
         if (dataValue === undefined) {
           refuse(`data.${dataKey}`);
@@ -147,6 +147,9 @@ export const compileWhere = (filter: JobFilter, params: unknown[]): string => {
     clauses.push(`disabled = ${param(filter.disabled)}`);
   }
   if (filter.data !== undefined) {
+    if (!isPlainObject(filter.data)) {
+      throw new PulseError('Invalid job filter field "data": expected an object');
+    }
     clauses.push(`data @> ${param(JSON.stringify(filter.data))}::jsonb`);
   }
 
