@@ -116,7 +116,10 @@ export class PgJobStore {
 
   async find(filter: JobFilter = {}, { sort = {}, limit = 0, skip = 0 }: FindOptions = {}): Promise<JobRecord[]> {
     const params: unknown[] = [];
-    let sql = `SELECT * FROM ${this.table} WHERE ${compileWhere(filter, params)} ${compileOrderBy(sort)}`;
+    // Postgres returns rows that tie on the sort in no fixed order, so LIMIT and
+    // OFFSET pages would repeat some rows and skip others. The id breaks the tie.
+    const orderBy = compileOrderBy(sort);
+    let sql = `SELECT * FROM ${this.table} WHERE ${compileWhere(filter, params)} ${orderBy ? `${orderBy}, id` : 'ORDER BY id'}`;
     if (limit > 0) {
       params.push(limit);
       sql += ` LIMIT $${params.length}`;

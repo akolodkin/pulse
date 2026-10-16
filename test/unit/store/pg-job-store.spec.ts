@@ -171,6 +171,25 @@ describe('PgJobStore writes and reads', () => {
     expect(page.map((r) => r.name)).toEqual(['b', 'a']);
   });
 
+  test('find pages through rows that tie on the sort without repeating or skipping any', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      const { _id } = await store.insert([
+        ['name', 'same'],
+        ['type', 'normal'],
+      ]);
+      ids.push(_id);
+    }
+
+    const paged: string[] = [];
+    for (let skip = 0; skip < ids.length; skip += 7) {
+      const page = await store.find({}, { sort: { name: 'asc' }, limit: 7, skip });
+      paged.push(...page.map((r) => r._id as string));
+    }
+
+    expect(paged).toEqual([...ids].sort());
+  });
+
   test('count, delete and setDisabled report affected rows', async () => {
     for (const name of ['a', 'b', 'c']) {
       await store.insert([
