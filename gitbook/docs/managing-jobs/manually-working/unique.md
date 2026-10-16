@@ -2,10 +2,10 @@
 
 
 
-## `job.unique(filter, options?)`
+## `job.unique(key, options?)`
 
 {% hint style="info" %}
-The `unique` method configures a job to be unique according to a specified MongoDB query filter. This method is crucial for avoiding duplicate job entries in scenarios where job uniqueness is determined by specific data attributes.\
+The `unique` method configures a job to be unique according to a specified key object. This method is crucial for avoiding duplicate job entries in scenarios where job uniqueness is determined by specific data attributes.\
 \
 _This does **NOT** save the job in the database.  you must explicitly declare_ [_`save()`_](save.md)_if you want to save it_
 {% endhint %}
@@ -15,15 +15,18 @@ _This does **NOT** save the job in the database.  you must explicitly declare_ [
 {% code fullWidth="false" %}
 ```typescript
 const job = pulse.create('test', {});
-job.unique({ 'data.type': 'email', 'data.userId': '12345' });
+job.unique({ type: 'email', userId: '12345' });
 await job.save(); // If you want to save it
+
+// Keep the existing job unchanged if one with the same key already exists
+job.unique({ type: 'email', userId: '12345' }, { insertOnly: true });
 ```
 {% endcode %}
 
 ### Parameters
 
-* **`filter`** (`Filter<TSchema>`): A MongoDB filter object that defines the criteria for job uniqueness. This filter is used to check existing jobs in the database to ensure that no other job with the same attributes exists.
-* **`options`** (`{ insertOnly: boolean }` - optional): Additional options to control the uniqueness check. The `insertOnly` option, if set to `true`, ensures that the uniqueness check is only applied when the job is first created, not on subsequent updates.
+* **`key`** (`Record<string, unknown>`): A plain object that identifies the job. Saving a job whose key equals an existing job's key (compared regardless of key order) updates that job instead of inserting a new one.
+* **`options`** (`{ insertOnly: boolean }` - optional): Additional options to control the uniqueness check. The `insertOnly` option, if set to `true`, keeps the existing job unchanged when one with the same key already exists, instead of updating it.
 
 ### Returns
 

@@ -1,7 +1,7 @@
 {
   "name": "@pulsecron/pulse",
-  "version": "1.6.8",
-  "description": "The modern MongoDB-powered job scheduler library for Node.js",
+  "version": "2.0.0",
+  "description": "The modern PostgreSQL-powered job scheduler library for Node.js",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "publishConfig": {
@@ -40,10 +40,10 @@
     "jobs",
     "cron",
     "cronjob",
-    "mongodb",
+    "postgres",
+    "postgresql",
+    "postgres-scheduler",
     "scheduling",
-    "mongodb",
-    "mongodb-scheduler",
     "queue",
     "delayed",
     "scheduler",
@@ -62,11 +62,12 @@
     "date.js": "~0.3.3",
     "debug": "~4.3.4",
     "human-interval": "~2.0.1",
-    "moment-timezone": "^0.5.45",
-    "mongodb": "^6.5.0"
+    "moment-timezone": "^0.5.45"
+  },
+  "peerDependencies": {
+    "pg": "^8"
   },
   "devDependencies": {
-    "jest-junit": "^16.0.0",
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^12.0.0",
@@ -79,12 +80,15 @@
     "@types/jest": "^29.5.12",
     "@types/luxon": "^3.4.2",
     "@types/node": "^20.12.6",
+    "@types/pg": "^8.23.1",
     "@typescript-eslint/eslint-plugin": "^7.6.0",
     "@typescript-eslint/parser": "^7.6.0",
     "conventional-changelog-conventionalcommits": "^7.0.2",
     "delay": "6.0.0",
+    "embedded-postgres": "16.14.0-beta.17",
     "eslint": "^8.56.0",
-    "mongodb-memory-server": "^9.1.8",
+    "jest-junit": "^16.0.0",
+    "pg": "^8.23.1",
     "prettier": "^3.2.5",
     "semantic-release": "^23.0.8",
     "ts-jest": "^29.1.2",

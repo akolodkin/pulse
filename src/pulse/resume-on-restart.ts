@@ -6,45 +6,14 @@ const debug = createDebugger('pulse:resumeOnRestart');
 export type ResumeOnRestartMethod = (resume?: boolean) => Pulse;
 
 /**
- * Set the resume on restart flag
+ * Set the resume on restart flag. When on, start() releases expired locks and
+ * reschedules past-due jobs that never ran before processing begins.
  * @name Pulse#resumeOnRestart
  * @function
  * @param resume resume on restart
  */
 export const resumeOnRestart: ResumeOnRestartMethod = function (this: Pulse, resume = true) {
-  debug('Pulse.resumeOnRestart()');
-
+  debug('Pulse.resumeOnRestart(%s)', resume);
   this._resumeOnRestart = resume;
-
-  if (this._collection && this._resumeOnRestart) {
-    const now = new Date();
-    this._collection
-      .updateMany(
-        {
-          $or: [
-            {
-              lockedAt: { $ne: null },
-              nextRunAt: { $ne: null },
-              $or: [{ $expr: { $eq: ['$runCount', '$finishedCount'] } }, { lastFinishedAt: { $exists: false } }],
-            },
-            {
-              lockedAt: { $exists: false },
-              lastFinishedAt: { $exists: false },
-              nextRunAt: { $lte: now, $ne: null },
-            },
-          ],
-        },
-        {
-          $unset: { lockedAt: undefined, lastModifiedBy: undefined, lastRunAt: undefined },
-          $set: { nextRunAt: now },
-        }
-      )
-      .then((result) => {
-        if (result.modifiedCount > 0) {
-          debug('resuming unfinished %d jobs(%s)', result.modifiedCount, now.toISOString());
-        }
-      });
-  }
-
   return this;
 };

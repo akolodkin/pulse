@@ -38,7 +38,8 @@ export const computeNextRunAt: ComputeNextRunAtMethod = function (this: Job) {
     debug('[%s:%s] computing next run via interval [%s]', this.attrs.name, this.attrs._id, interval);
     const dateNow = new Date();
     let lastRun: Date = this.attrs.lastRunAt || dateNow;
-    let { startDate, endDate, skipDays } = this.attrs;
+    const { endDate, skipDays } = this.attrs;
+    let { startDate } = this.attrs;
     lastRun = dateForTimezone(lastRun).toDate();
     const cronOptions: any = { currentDate: lastRun };
     if (timezone) {
@@ -69,7 +70,9 @@ export const computeNextRunAt: ComputeNextRunAtMethod = function (this: Job) {
       if (dateNow > lastRun && skipDays !== null) {
         try {
           nextDate = new Date(nextDate.getTime() + (humanInterval(skipDays) ?? 0));
-        } catch {}
+        } catch {
+          // An unparseable skipDays is ignored: nextDate stays as computed.
+        }
       }
 
       // If endDate is less than the nextDate, set nextDate to null to stop the job from running further
@@ -95,7 +98,9 @@ export const computeNextRunAt: ComputeNextRunAtMethod = function (this: Job) {
           debug('[%s:%s] nextRunAt set to [%s]', this.attrs.name, this.attrs._id, this.attrs.nextRunAt.toISOString());
         }
         // Either `xo` linter or Node.js 8 stumble on this line if it isn't just ignored
-      } catch {}
+      } catch {
+        // An invalid interval leaves nextRunAt unset; the finally block below clears it.
+      }
     } finally {
       if (!this.attrs.nextRunAt?.getTime()) {
         this.attrs.nextRunAt = undefined;

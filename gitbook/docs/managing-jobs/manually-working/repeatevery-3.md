@@ -5,7 +5,7 @@
 ## `job.remove()`
 
 {% hint style="info" %}
-The `remove` method deletes a specific job from the MongoDB database, ensuring that it is no longer available for processing or querying. This method is crucial for managing job lifecycle and maintaining a clean job queue.
+The `remove` method deletes a specific job from the database, ensuring that it is no longer available for processing or querying. This method is crucial for managing job lifecycle and maintaining a clean job queue.
 
 
 {% endhint %}

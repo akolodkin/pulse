@@ -1,17 +1,15 @@
+import { Pool } from 'pg';
 import Pulse from '@pulsecron/pulse';
 
-const mongoConnectionString = 'mongodb://localhost:27017/pulse';
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const pulse = new Pulse({ db: { address: mongoConnectionString } });
+const pulse = new Pulse({ pg: { pool }, autoSchema: true });
 
-// Or override the default collection name:
-// const pulse = new Pulse({db: {address: mongoConnectionString, collection: 'jobCollectionName'}});
+// Attach this before the schema is created: a DDL failure is emitted as 'error' and 'ready' will not fire.
+pulse.on('error', (error) => console.error(error));
 
-// or pass additional connection options:
-// const pulse = new Pulse({db: {address: mongoConnectionString, collection: 'jobCollectionName', options: {ssl: true}}});
-
-// or pass in an existing mongodb-native MongoClient instance
-// const pulse = new Pulse({mongo: myMongoClient});
+// Or override the default table name (`pulse_jobs`, or `schema.table`):
+// const pulse = new Pulse({ pg: { pool, table: 'my_schema.jobs' }, autoSchema: true });
 
 /**
  * Example of defining a job

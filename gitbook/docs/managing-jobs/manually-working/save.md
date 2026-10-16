@@ -5,7 +5,7 @@
 ## `job.save()`
 
 {% hint style="info" %}
-The `save` method commits the current state of a job to the MongoDB database. This operation is essential for ensuring that changes made to a job's attributes, such as status updates, data modifications, or configuration changes, are not lost and are fully recoverable.
+The `save` method commits the current state of a job to the database. This operation is essential for ensuring that changes made to a job's attributes, such as status updates, data modifications, or configuration changes, are not lost and are fully recoverable.
 {% endhint %}
 
 ### Example Usage

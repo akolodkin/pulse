@@ -1,28 +1,21 @@
 import createDebugger from 'debug';
-import { Document, Filter } from 'mongodb';
 import { Pulse } from '.';
+import { JobFilter } from '../store';
 
 const debug = createDebugger('pulse:cancel');
 
-export type CancelMethod = (query: Filter<Document>) => Promise<number | undefined>;
+export type CancelMethod = (filter: JobFilter) => Promise<number>;
 /**
- * Cancels any jobs matching the passed MongoDB query, and removes them from the database.
+ * Cancels any jobs matching `filter` and removes them from the database.
  * @name Pulse#cancel
  * @function
- * @param query MongoDB query to use when cancelling
+ * @param filter typed job filter
  * @caller client code, Pulse.purge(), Job.remove()
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const cancel: CancelMethod = async function (this: Pulse, query) {
-  debug('attempting to cancel all Pulse jobs', query);
-  try {
-    const { deletedCount } = await this._collection.deleteMany(query);
-    this.emit('cancel', deletedCount);
-
-    debug('%s jobs cancelled', deletedCount);
-    return deletedCount;
-  } catch (error) {
-    debug('error trying to delete jobs from MongoDB');
-    throw error;
-  }
+export const cancel: CancelMethod = async function (this: Pulse, filter) {
+  debug('attempting to cancel all Pulse jobs', filter);
+  const deletedCount = await this._store.delete(filter);
+  this.emit('cancel', deletedCount);
+  debug('%s jobs cancelled', deletedCount);
+  return deletedCount;
 };

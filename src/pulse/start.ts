@@ -20,6 +20,10 @@ export const start: StartMethod = async function (this: Pulse) {
 
   await this._ready;
 
+  if (this._resumeOnRestart) {
+    await this._resumeUnfinishedJobs();
+  }
+
   debug('Pulse.start called, creating interval to call processJobs every [%dms]', this._processEvery);
   this._processInterval = setInterval(processJobs.bind(this), this._processEvery);
   process.nextTick(processJobs.bind(this));

@@ -5,48 +5,25 @@ const debug = createDebugger('pulse:stop');
 
 export type StopMethod = () => Promise<void>;
 /**
- * Clear the interval that processes the jobs
+ * Clear the interval that processes the jobs and release the locks of jobs this
+ * instance locked but has not started. Running jobs keep their lock: if this
+ * process finishes them, the completion save unlocks them; if it exits first,
+ * another worker re-runs them once the lock lifetime expires. Unlocking a
+ * running one-off job would strand it (it no longer has a nextRunAt).
  * @name Pulse#stop
  * @function
- * @returns resolves when job unlocking fails or passes
+ * @returns resolves when the locks are released
  */
 export const stop: StopMethod = async function (this: Pulse) {
-  /**
-   * Internal method to unlock jobs so that they can be re-run
-   * NOTE: May need to update what properties get set here, since job unlocking seems to fail
-   * @access private
-   * @returns resolves when job unlocking fails or passes
-   */
-  const _unlockJobs = async (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      debug('Pulse._unlockJobs()');
-      const jobIds = this._lockedJobs.map((job) => job.attrs._id);
-
-      if (jobIds.length === 0) {
-        debug('no jobs to unlock');
-        resolve();
-      }
-
-      debug('about to unlock jobs with ids: %O', jobIds);
-      this._collection
-        .updateMany({ _id: { $in: jobIds } }, { $set: { lockedAt: null } })
-        .then(() => {
-          this._lockedJobs = [];
-          return resolve();
-        })
-        .catch((error) => {
-          if (error) {
-            return reject(error);
-          }
-
-          this._lockedJobs = [];
-          return resolve();
-        });
-    });
-  };
-
   debug('Pulse.stop called, clearing interval for processJobs()');
   clearInterval(this._processInterval);
   this._processInterval = undefined;
-  return _unlockJobs();
+
+  const notStarted = this._lockedJobs.filter((job) => !this._runningJobs.includes(job));
+  const jobIds = notStarted.map((job) => job.attrs._id);
+  if (this._store && jobIds.length > 0) {
+    debug('about to unlock jobs with ids: %O', jobIds);
+    await this._store.unlock(jobIds);
+  }
+  this._lockedJobs = this._lockedJobs.filter((job) => this._runningJobs.includes(job));
 };

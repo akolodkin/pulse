@@ -19,7 +19,7 @@
 
 ## **Integration and Flexibility**:
 
-* Offers seamless integration with existing Node.js applications and MongoDB, reducing the learning curve and implementation effort.
+* Offers seamless integration with existing Node.js applications and PostgreSQL, reducing the learning curve and implementation effort.
 * Supports a variety of job types including cron, one-time, and recurring jobs with enhanced control over scheduling.
 
 ## **Community and Support**:

@@ -1,27 +1,20 @@
 import createDebugger from 'debug';
-import { Filter } from 'mongodb';
 import { Pulse } from '.';
+import { JobFilter } from '../store';
+
 const debug = createDebugger('pulse:enable');
 
-export type EnableMethod = (query?: Filter<unknown>) => Promise<number>;
+export type EnableMethod = (filter?: JobFilter) => Promise<number>;
 /**
- * Enables any jobs matching the passed MongoDB query by setting the `disabled` flag to `false`
+ * Enables any jobs matching `filter` by setting the `disabled` flag to `false`
  * @name Pulse#enable
  * @function
- * @param query MongoDB query to use when enabling
- * @caller client code, Pulse.purge(), Job.remove()
- * @returns {Promise<Number>} A promise that contains the number of removed documents when fulfilled.
+ * @param filter typed job filter
+ * @returns {Promise<number>} Resolved with the number of jobs whose flag changed.
  */
-export const enable: EnableMethod = async function (this: Pulse, query = {}) {
-  debug('attempting to enable all jobs matching query', query);
-  try {
-    const { modifiedCount } = await this._collection.updateMany(query, {
-      $set: { disabled: false },
-    });
-    debug('%s jobs enabled', modifiedCount);
-    return modifiedCount;
-  } catch (error) {
-    debug('error trying to mark jobs as `enabled`');
-    throw error;
-  }
+export const enable: EnableMethod = async function (this: Pulse, filter = {}) {
+  debug('attempting to enable all jobs matching filter', filter);
+  const modifiedCount = await this._store.setDisabled(filter, false);
+  debug('%s jobs enabled', modifiedCount);
+  return modifiedCount;
 };

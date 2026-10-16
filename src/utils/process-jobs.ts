@@ -88,7 +88,7 @@ export const processJobs = async function (this: Pulse, extraJob: Job): Promise<
   }
 
   /**
-   * Internal method that will lock a job and store it on MongoDB
+   * Internal method that will lock a job and store it in the database
    * This method is called when we immediately start to process a job without using the process interval
    * We do this because sometimes jobs are scheduled but will be run before the next process time
    */
@@ -135,26 +135,11 @@ export const processJobs = async function (this: Pulse, extraJob: Job): Promise<
       return;
     }
 
-    // Query to run against collection to see if we need to lock it
-    const criteria = {
-      _id: job.attrs._id,
-      lockedAt: null,
-      nextRunAt: job.attrs.nextRunAt,
-      disabled: { $ne: true },
-    };
+    // Lock the job only if nobody else has, and it is still due when we expected
+    const record = await self._store.lockById(job.attrs._id, job.attrs.nextRunAt, now);
 
-    // Update / options for the MongoDB query
-    const update = { $set: { lockedAt: now } };
-
-    // Lock the job in MongoDB!
-    const resp = await self._collection.findOneAndUpdate(criteria, update, {
-      includeResultMetadata: true,
-      returnDocument: 'after',
-    });
-
-    if (resp?.value) {
-      // @ts-ignore
-      const job = createJob(self, resp.value);
+    if (record) {
+      const job = createJob(self, record);
       debug('found job [%s:%s] that can be locked on the fly', job.attrs.name, job.attrs._id);
       self._lockedJobs.push(job);
       definitions[job.attrs.name].locked++;
@@ -267,7 +252,7 @@ export const processJobs = async function (this: Pulse, extraJob: Job): Promise<
 
           // This means a job has "expired", as in it has not been "touched" within the lockoutTime
           // Remove from local lock
-          // NOTE: Shouldn't we update the 'lockedAt' value in MongoDB so it can be picked up on restart?
+          // NOTE: Shouldn't we update the 'lockedAt' value in the database so it can be picked up on restart?
           if (!job.attrs.lockedAt || job.attrs.lockedAt < lockDeadline) {
             debug('[%s:%s] job lock has expired, freeing it up', job.attrs.name, job.attrs._id);
             self._lockedJobs.splice(self._lockedJobs.indexOf(job), 1);

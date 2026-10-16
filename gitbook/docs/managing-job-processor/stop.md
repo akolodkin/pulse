@@ -5,7 +5,7 @@
 ## `pulse.stop()`
 
 {% hint style="info" %}
-The `stop` method halts the job processing activity initiated by the `start` method, effectively stopping the job processing interval. Additionally, it includes an operation to unlock any jobs that were locked at the time of stopping, making them available for reprocessing if necessary. This functionality is crucial for ensuring a graceful shutdown of the system, where currently running or grabbed jobs are released. This allows other job queues to pick them up or ensures they are available when the job queue is restarted.
+The `stop` method halts the job processing activity initiated by the `start` method, effectively stopping the job processing interval. It also releases the locks of jobs this instance had locked but not yet started, so other workers can pick them up straight away. Jobs that are already running keep their lock: if the process lets them finish, they are unlocked as usual; if the process exits first, another worker re-runs them once their `lockLifetime` expires, so a job is never lost on shutdown. Give long jobs a `lockLifetime` that covers their run time (or call `job.touch()`).
 {% endhint %}
 
 ### Example Usage
